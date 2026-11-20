@@ -377,7 +377,7 @@ class FonteYtDlp(FonteBase):
         resultado.extra.pop("erro_detalhe", None)
         return resultado
 
-    def detalhar(self, resultado: TrackResult) -> TrackResult:
+    def detalhar(self, resultado: TrackResult, ao_parcial=None) -> TrackResult:
         """Consulta o yt-dlp para listar os formatos de áudio reais.
 
         Nunca levanta exceção: se o yt-dlp falhar (verificação de robô, vídeo
@@ -385,7 +385,10 @@ class FonteYtDlp(FonteBase):
         `resultado.extra["erro_detalhe"]` e `resultado.aviso` avisa a interface,
         para o cartão não ficar "detectando" para sempre.
         """
-        if resultado.formatos and resultado.extra.get("metodos_consulta"):
+        metodos_anteriores = resultado.extra.get("metodos_consulta") or []
+        incompleto = (resultado.extra.get("consulta_em_andamento") or
+                      any(m.get('estado') == 'consultando' for m in metodos_anteriores))
+        if resultado.formatos and metodos_anteriores and not incompleto:
             return resultado
         url = resultado.pagina_url or resultado.extra.get("url")
         if not url:
@@ -393,13 +396,27 @@ class FonteYtDlp(FonteBase):
             resultado.aviso = "qualidade não detectada"
             return resultado
         try:
+            def publicar_parcial(dados):
+                if not ao_parcial:
+                    return
+                from copy import deepcopy
+                parcial = deepcopy(resultado)
+                parcial.extra["metodos_consulta"] = dados["metodos"]
+                parcial.extra["consulta_em_andamento"] = True
+                parcial.formatos = []
+                self._aplicar_json(parcial, dados)
+                if parcial.formatos:
+                    ao_parcial(parcial)
+
             consulta = consulta_formatos.consultar(url, self._args_base(tentativas=1),
-                                                   self._rodar, _aviso_extracao)
+                                                   self._rodar, _aviso_extracao,
+                                                   ao_parcial=publicar_parcial if ao_parcial else None)
         except Exception:
             resultado.extra["erro_detalhe"] = "não foi possível iniciar a consulta dos formatos"
             resultado.aviso = "qualidade não detectada"
             return resultado
         resultado.extra["metodos_consulta"] = consulta["metodos"]
+        resultado.extra.pop("consulta_em_andamento", None)
         resultado.formatos = []
         self._aplicar_json(resultado, consulta)
         if not resultado.formatos:

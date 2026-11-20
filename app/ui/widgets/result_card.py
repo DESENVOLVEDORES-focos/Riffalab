@@ -6,7 +6,7 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel,
-                               QPushButton, QSizePolicy, QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
 
 from ...formatos_detalhes import campos
 from ...models import AudioFormat, TrackResult, hhmmss
@@ -15,7 +15,7 @@ from ...quality import cor_rotulo, pontuar, rotulo
 from ..theme import PALETA, pixmap_placeholder, alfa
 from .images import CarregadorImagens, cortar_quadrado
 
-LADO_CAPA = 88
+LADO_CAPA = 72
 
 
 class Chip(QLabel):
@@ -45,8 +45,8 @@ class ResultCard(QFrame):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         fora = QHBoxLayout(self)
-        fora.setContentsMargins(12, 12, 14, 12)
-        fora.setSpacing(13)
+        fora.setContentsMargins(9, 8, 10, 8)
+        fora.setSpacing(10)
 
         # ---------------------------------------------------------- capa
         self.capa = QLabel()
@@ -64,7 +64,7 @@ class ResultCard(QFrame):
 
         # ------------------------------------------------------- textos
         meio = QVBoxLayout()
-        meio.setSpacing(5)
+        meio.setSpacing(3)
         meio.setContentsMargins(0, 0, 0, 0)
 
         titulo = QLabel(resultado.titulo or "(sem título)")
@@ -97,13 +97,15 @@ class ResultCard(QFrame):
         meio.addWidget(self.lbl_erro_qualidade)
 
         self.lbl_metodos_qualidade = QLabel("")
-        self.lbl_metodos_qualidade.setWordWrap(True)
+        self.lbl_metodos_qualidade.setWordWrap(False)
         self.lbl_metodos_qualidade.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 11px;")
+        self.lbl_metodos_qualidade.linkActivated.connect(self._mostrar_metodos)
+        self._detalhes_metodos = ""
         self.lbl_metodos_qualidade.setVisible(False)
         meio.addWidget(self.lbl_metodos_qualidade)
 
         self.lbl_origem_formato = QLabel("")
-        self.lbl_origem_formato.setWordWrap(True)
+        self.lbl_origem_formato.setWordWrap(False)
         self.lbl_origem_formato.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 11px;")
         self.lbl_origem_formato.setVisible(False)
         meio.addWidget(self.lbl_origem_formato)
@@ -129,61 +131,61 @@ class ResultCard(QFrame):
         meio.addWidget(self._barra)
         fora.addLayout(meio, 1)
 
-        # ------------------------------------------------------- ações
+        # Ações compactas mantêm o seletor e a comparação legíveis sem
+        # transformar cada resultado num cartão excessivamente alto.
         direita = QVBoxLayout()
-        direita.setSpacing(7)
+        direita.setSpacing(4)
         direita.setAlignment(Qt.AlignTop)
-
         self.combo = QComboBox()
-        self.combo.setMinimumWidth(170)
+        self.combo.setObjectName("seletorFormatos")
+        self.combo.setMinimumWidth(235)
         self.combo.setMaximumWidth(280)
         self.combo.currentIndexChanged.connect(self._atualizar_origem_formato)
         self.combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.combo.setMinimumContentsLength(12)
+        self.combo.view().setMinimumWidth(410)
         direita.addWidget(self.combo)
+        linha_formatos = QHBoxLayout()
+        linha_formatos.setSpacing(4)
         self.btn_formatos = QPushButton("Comparar formatos")
         self.btn_formatos.setObjectName("fantasma")
+        self.btn_formatos.setStyleSheet("padding: 5px 7px;")
         self.btn_formatos.setToolTip("Ver os detalhes técnicos de todos os formatos deste vídeo")
         self.btn_formatos.clicked.connect(self._comparar_formatos)
-        direita.addWidget(self.btn_formatos)
+        linha_formatos.addWidget(self.btn_formatos, 1)
+        self.btn_verificar = QPushButton("Verificar")
+        self.btn_verificar.setObjectName("fantasma")
+        self.btn_verificar.setStyleSheet("padding: 5px 7px;")
+        self.btn_verificar.clicked.connect(self._verificar)
+        self.btn_verificar.setVisible(not bool(resultado.formatos))
+        linha_formatos.addWidget(self.btn_verificar)
+        direita.addLayout(linha_formatos)
 
         linha = QHBoxLayout()
-        linha.setSpacing(8)
+        linha.setSpacing(5)
         self.btn_processar = QPushButton("Adicionar")
         self.btn_processar.setObjectName("primario")
+        self.btn_processar.setStyleSheet("padding: 6px 9px;")
         self.btn_processar.clicked.connect(self._emitir_processar)
         linha.addWidget(self.btn_processar)
-
         self.check = QCheckBox("incluir")
         self.check.setToolTip("Marcar esta música para adicionar à lista de Downloads")
         self.check.toggled.connect(self.selecionado.emit)
         linha.addWidget(self.check)
-        direita.addLayout(linha)
-
-        # segunda linha de ações: prévia (player oficial) e verificação manual
-        linha2 = QHBoxLayout()
-        linha2.setSpacing(8)
         self.btn_previa = QPushButton("▶ Prévia")
         self.btn_previa.setObjectName("fantasma")
-        self.btn_previa.clicked.connect(
-            lambda: self.prever.emit({"resultado": self.resultado}))
+        self.btn_previa.setStyleSheet("padding: 5px 7px;")
+        self.btn_previa.clicked.connect(lambda: self.prever.emit({"resultado": self.resultado}))
         if resultado.fonte == "ytdlp":
             pode, motivo = previa.pode_incorporar(resultado)
-            self.btn_previa.setToolTip(motivo or "Reproduzir no player oficial, "
-                                                 "sem baixar o arquivo")
+            self.btn_previa.setToolTip(motivo or "Reproduzir no player oficial, sem baixar o arquivo")
             if not pode:
                 self.btn_previa.setText("Prévia ↗")
         else:
             self.btn_previa.setToolTip("A prévia embutida existe para vídeos")
-        linha2.addWidget(self.btn_previa)
-
-        if not resultado.formatos:
-            self.btn_verificar = QPushButton("Verificar")
-            self.btn_verificar.setObjectName("fantasma")
-            self.btn_verificar.clicked.connect(self._verificar)
-            linha2.addWidget(self.btn_verificar)
-        linha2.addStretch(1)
-        direita.addLayout(linha2)
+        linha.addWidget(self.btn_previa)
+        linha.addStretch(1)
+        direita.addLayout(linha)
         fora.addLayout(direita, 0)
 
         self._preencher_baixado()
@@ -324,7 +326,8 @@ class ResultCard(QFrame):
     def _preencher_formatos(self) -> None:
         selecionado = self.combo.currentData()
         erro_visivel = self.resultado.extra.get("erro_detalhe") or ""
-        self.lbl_erro_qualidade.setText(f"Qualidade não detectada: {erro_visivel}" if erro_visivel else "")
+        titulo_erro = "Consulta incompleta" if self.resultado.formatos else "Qualidade não detectada"
+        self.lbl_erro_qualidade.setText(f"{titulo_erro}: {erro_visivel}" if erro_visivel else "")
         self.lbl_erro_qualidade.setVisible(bool(erro_visivel))
         metodos = self.resultado.extra.get("metodos_consulta") or []
         if metodos:
@@ -338,7 +341,13 @@ class ResultCard(QFrame):
                 if metodo.get("versao"):
                     detalhe += f" · v{metodo['versao']}"
                 linhas.append(f"{nome}: {detalhe}")
-            self.lbl_metodos_qualidade.setText("Métodos: " + "  |  ".join(linhas))
+            self._detalhes_metodos = "\n".join(linhas)
+            self.lbl_metodos_qualidade.setToolTip(self._detalhes_metodos)
+            concluidos = sum(m.get('estado') != 'consultando' for m in metodos)
+            total = len(metodos)
+            texto = f"{len(self.resultado.formatos)} formato(s) · {concluidos}/{total} métodos"
+            self.lbl_metodos_qualidade.setText(
+                f"{texto} · <a style='color:{PALETA['ciano']}' href='metodos'>ver detalhes</a>")
             self.lbl_metodos_qualidade.setVisible(True)
         else:
             self.lbl_metodos_qualidade.setText("")
@@ -377,11 +386,8 @@ class ResultCard(QFrame):
                 texto += " · áudio não confirmado"
             if fmt.format_id:
                 texto = f"{texto} · id {fmt.format_id}"      # ex.: id 251 (opus 160k)
-            metodos_fmt = fmt.extra.get("metodos") or []
-            if metodos_fmt:
-                texto += " · " + ", ".join(metodos_fmt)
             if i == 0 and (fmt.bitrate_kbps or fmt.lossless):
-                texto = f"★ {texto}  (ordem aproximada)"
+                texto = f"★ {texto}"
             self.combo.addItem(texto, fmt)
         if selecionado is not None and getattr(selecionado, 'format_id', '') not in ('', 'bestaudio'):
             for i, fmt in enumerate(ordenados):
@@ -392,8 +398,15 @@ class ResultCard(QFrame):
     def _atualizar_origem_formato(self, *_args) -> None:
         formato = self.combo.currentData()
         metodos = getattr(formato, "extra", {}).get("metodos") or [] if formato else []
-        self.lbl_origem_formato.setText("Formato selecionado encontrado por: " + ", ".join(metodos) if metodos else "")
-        self.lbl_origem_formato.setVisible(bool(metodos))
+        texto = "Formato selecionado encontrado por: " + ", ".join(metodos) if metodos else ""
+        self.lbl_origem_formato.setText(texto)
+        self.lbl_origem_formato.setToolTip(texto)
+        # Os métodos ficam acessíveis na comparação e em "ver detalhes"; não
+        # aumentam a altura de todos os cartões de uma lista grande.
+        self.lbl_origem_formato.setVisible(False)
+
+    def _mostrar_metodos(self, _link: str) -> None:
+        QMessageBox.information(self, "Consulta de formatos", self._detalhes_metodos)
 
     def _comparar_formatos(self) -> None:
         from .format_details import DialogoFormatos

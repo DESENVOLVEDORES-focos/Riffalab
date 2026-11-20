@@ -20,6 +20,39 @@ def obj(formatos):
 
 
 class Multimetodos(unittest.TestCase):
+    def test_formatos_sao_publicados_antes_dos_metodos_lentos_terminarem(self):
+        import threading
+        liberar = threading.Event()
+        recebeu = threading.Event()
+        parciais = []
+        finais = []
+        def rodar(args, timeout):
+            if '-j' in args:
+                return 0, obj([formato('251'), formato('140', 'aac', 130)]), ''
+            self.assertTrue(liberar.wait(5))
+            return 1, '', 'ERROR: HTTP Error 403'
+        def parcial(dados):
+            parciais.append(dados)
+            recebeu.set()
+        def executar():
+            finais.append(c.consultar('https://example.com/video', ['yt-dlp'], rodar,
+                                      _aviso_extracao, ao_parcial=parcial))
+        worker = threading.Thread(target=executar)
+        worker.start()
+        try:
+            self.assertTrue(recebeu.wait(3), 'nenhum formato parcial foi publicado')
+            self.assertTrue(worker.is_alive(), 'métodos lentos não deveriam ter terminado')
+            primeiro = parciais[0]
+            self.assertEqual({f['format_id'] for f in primeiro['formats']}, {'251', '140'})
+            self.assertEqual(sum(m['estado'] == 'consultando' for m in primeiro['metodos']), 3)
+        finally:
+            liberar.set()
+            worker.join(10)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual({f['format_id'] for f in finais[0]['formats']}, {'251', '140'})
+        self.assertEqual([m['estado'] for m in finais[0]['metodos']],
+                         ['falhou', 'ok', 'falhou', 'falhou'])
+
     def test_cruza_todos_mesmo_link_preserva_ids_e_nao_baixa(self):
         url = 'https://www.youtube.com/watch?v=abcdef'
         chamadas = []

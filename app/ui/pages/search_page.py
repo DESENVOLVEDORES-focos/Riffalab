@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
                                QInputDialog, QMessageBox, QLineEdit, QProgressBar, QPushButton, QScrollArea,
-                               QSizePolicy, QSpinBox, QVBoxLayout, QWidget)
+                               QSizePolicy, QSpinBox, QStackedWidget, QTabBar, QVBoxLayout, QWidget)
 
 from ... import arquivos_baixados, estado_musicas
 from ...config import Config
@@ -33,6 +33,7 @@ class SearchPage(QWidget):
     abrir_downloads = Signal()
     mensagem = Signal(str)
     parcial_pronto = Signal(int, int, object)
+    formato_parcial = Signal(object, object, object)
 
     def __init__(self, config: Config, banco: Banco, carregador: CarregadorImagens,
                  pai: Optional[QWidget] = None) -> None:
@@ -48,6 +49,7 @@ class SearchPage(QWidget):
         self._buscando = False
         self._geracao_busca = 0
         self.parcial_pronto.connect(self._receber_parcial)
+        self.formato_parcial.connect(self._receber_formato_parcial)
         self._geracao_baixados = 0
         self._fila_verif: List[ResultCard] = []
         self._verif_ativas = 0
@@ -63,8 +65,8 @@ class SearchPage(QWidget):
         self.campos_extras: list[tuple[QWidget, QLineEdit]] = []
 
         raiz = QVBoxLayout(self)
-        raiz.setContentsMargins(26, 22, 26, 16)
-        raiz.setSpacing(12)
+        raiz.setContentsMargins(18, 14, 18, 10)
+        raiz.setSpacing(7)
 
         # ------------------------------------------------------- cabeçalho
         topo = QHBoxLayout()
@@ -72,67 +74,84 @@ class SearchPage(QWidget):
         titulos.setSpacing(2)
         t = QLabel("Pesquisar música")
         t.setObjectName("titulo")
-        st = QLabel("Compare as opções, escolha a melhor qualidade e receba o MP3 com capa e tags.")
-        st.setObjectName("subtitulo")
+        self.lbl_descricao = QLabel("Compare formatos, escolha as músicas e prepare o MP3 com ou sem capa.")
+        self.lbl_descricao.setObjectName("subtitulo")
         titulos.addWidget(t)
-        titulos.addWidget(st)
+        titulos.addWidget(self.lbl_descricao)
         topo.addLayout(titulos, 1)
         raiz.addLayout(topo)
 
-        # ---------------------------------------------------------- busca
-        linha = QHBoxLayout()
-        linha.setSpacing(10)
+        # Duas abas de entrada compartilham os mesmos filtros e resultados.
+        # Ao pesquisar, apenas os campos são recolhidos: os resultados recebem
+        # o espaço principal, e os termos continuam disponíveis para edição.
+        cab_busca = QHBoxLayout()
+        self.abas_busca = QTabBar()
+        self.abas_busca.addTab("Pesquisa normal")
+        self.abas_busca.addTab("Várias músicas")
+        self.abas_busca.setExpanding(False)
+        self.abas_busca.setDocumentMode(True)
+        self.abas_busca.setStyleSheet(
+            f"QTabBar::tab {{ padding: 8px 20px; color: {PALETA['texto_dim']}; "
+            f"border-bottom: 2px solid {PALETA['border']}; }} "
+            f"QTabBar::tab:selected {{ color: {PALETA['texto']}; "
+            f"border-bottom: 3px solid {PALETA['ciano']}; font-weight: bold; }}")
+        self.abas_busca.currentChanged.connect(self._aba_busca_mudou)
+        cab_busca.addWidget(self.abas_busca)
+        cab_busca.addStretch(1)
+        self.btn_editar_busca = QPushButton("Recolher campos ↑")
+        self.btn_editar_busca.setObjectName("fantasma")
+        self.btn_editar_busca.clicked.connect(self._alternar_campos_busca)
+        cab_busca.addWidget(self.btn_editar_busca)
+        raiz.addLayout(cab_busca)
+
+        self.paineis_busca = QStackedWidget()
+        pagina_simples = QWidget()
+        linha = QHBoxLayout(pagina_simples)
+        linha.setContentsMargins(0, 0, 0, 0)
+        linha.setSpacing(8)
         self.campo = QLineEdit()
         self.campo.setObjectName("busca")
-        self.campo.setPlaceholderText("Música, artista, banda ou link de vídeo do YouTube…")
+        self.campo.setPlaceholderText("Música, artista, banda ou link do YouTube…")
         self.campo.returnPressed.connect(self.pesquisar)
         linha.addWidget(self.campo, 1)
-
         self.btn_buscar = QPushButton("Pesquisar")
         self.btn_buscar.setObjectName("primario")
-        self.btn_buscar.setMinimumWidth(130)
         self.btn_buscar.clicked.connect(self.pesquisar)
         linha.addWidget(self.btn_buscar)
+        self.paineis_busca.addWidget(pagina_simples)
 
-        rotulo_qtd = QLabel("QUANTIDADE")
-        rotulo_qtd.setObjectName("rotulo")
-        linha.addWidget(rotulo_qtd)
-        self.qtd = QSpinBox()
-        self.qtd.setRange(1, 20)
-        self.qtd.setValue(int(self.config.get("quantidade_padrao") or 5))
-        self.qtd.setFixedWidth(92)
-        self.qtd.setToolTip("Quantas músicas o botão “Selecionar os melhores” marca")
-        self.qtd.valueChanged.connect(self._quantidade_mudou)
-        linha.addWidget(self.qtd)
-        raiz.addLayout(linha)
-
-        self.chk_varias = QCheckBox("Pesquisar várias músicas ou artistas de uma vez")
-        self.chk_varias.setToolTip("Use o primeiro campo acima e adicione quantos campos precisar.")
-        raiz.addWidget(self.chk_varias)
         self.painel_varias = QWidget()
         painel_layout = QVBoxLayout(self.painel_varias)
         painel_layout.setContentsMargins(0, 0, 0, 0)
         painel_layout.setSpacing(5)
-        dica_varias = QLabel("Cada campo gera uma seção separada nos resultados. Campos vazios são ignorados.")
-        dica_varias.setWordWrap(True)
-        painel_layout.addWidget(dica_varias)
+        self.campo_varias = QLineEdit()
+        self.campo_varias.setObjectName("busca")
+        self.campo_varias.setPlaceholderText("Primeira música, artista ou link…")
+        self.campo_varias.returnPressed.connect(self.pesquisar)
+        painel_layout.addWidget(self.campo_varias)
         area_campos = QScrollArea()
         area_campos.setWidgetResizable(True)
-        area_campos.setMaximumHeight(150)
+        area_campos.setMaximumHeight(100)
         area_campos.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         campos_widget = QWidget()
         self.lista_campos = QVBoxLayout(campos_widget)
         self.lista_campos.setContentsMargins(0, 0, 0, 0)
-        self.lista_campos.setSpacing(5)
+        self.lista_campos.setSpacing(4)
         area_campos.setWidget(campos_widget)
         painel_layout.addWidget(area_campos)
-        self.btn_mais_campo = QPushButton("+ Adicionar pesquisa")
+        acoes_varias = QHBoxLayout()
+        self.btn_mais_campo = QPushButton("+ Adicionar música")
         self.btn_mais_campo.setObjectName("fantasma")
         self.btn_mais_campo.clicked.connect(self._adicionar_campo)
-        painel_layout.addWidget(self.btn_mais_campo, alignment=Qt.AlignLeft)
-        raiz.addWidget(self.painel_varias)
-        self.painel_varias.hide()
-        self.chk_varias.toggled.connect(self._modo_varias_mudou)
+        acoes_varias.addWidget(self.btn_mais_campo)
+        acoes_varias.addStretch(1)
+        self.btn_buscar_varias = QPushButton("Pesquisar todas")
+        self.btn_buscar_varias.setObjectName("primario")
+        self.btn_buscar_varias.clicked.connect(self.pesquisar)
+        acoes_varias.addWidget(self.btn_buscar_varias)
+        painel_layout.addLayout(acoes_varias)
+        self.paineis_busca.addWidget(self.painel_varias)
+        raiz.addWidget(self.paineis_busca)
 
         # ------------------------------------------------- aviso do yt-dlp
         self.aviso_ytdlp = QFrame()
@@ -152,8 +171,10 @@ class SearchPage(QWidget):
         self._atualizar_aviso()
 
         # -------------------------------------------------------- filtros
-        filtros = QHBoxLayout()
-        filtros.setSpacing(14)
+        self.painel_filtros = QWidget()
+        filtros = QHBoxLayout(self.painel_filtros)
+        filtros.setContentsMargins(0, 0, 0, 0)
+        filtros.setSpacing(10)
         rotulo = QLabel("FONTES")
         rotulo.setObjectName("rotulo")
         filtros.addWidget(rotulo)
@@ -180,7 +201,7 @@ class SearchPage(QWidget):
         self.ordem.addItem("Melhor qualidade", "qualidade")
         self.ordem.setFixedWidth(180)
         filtros.addWidget(self.ordem)
-        raiz.addLayout(filtros)
+        raiz.addWidget(self.painel_filtros)
 
         # ---- filtro de shows/ao vivo: nada é escondido em silêncio (§3.3) ----
         filtros2 = QHBoxLayout()
@@ -193,7 +214,7 @@ class SearchPage(QWidget):
         self.chk_filtro.toggled.connect(self._filtro_mudou)
         filtros2.addWidget(self.chk_filtro)
 
-        self.btn_filtrados = QPushButton("Mostrar resultados filtrados (0)")
+        self.btn_filtrados = QPushButton("Mostrar filtrados (0)")
         self.btn_filtrados.setObjectName("fantasma")
         self.btn_filtrados.setEnabled(False)
         self.btn_filtrados.setToolTip("Os resultados ocultos pelo filtro de ao vivo "
@@ -201,6 +222,18 @@ class SearchPage(QWidget):
         self.btn_filtrados.clicked.connect(self._alternar_filtrados)
         filtros2.addWidget(self.btn_filtrados)
         filtros2.addStretch(1)
+        filtros2.addWidget(QLabel("Melhores:"))
+        self.qtd = QSpinBox()
+        self.qtd.setRange(1, 20)
+        self.qtd.setValue(int(self.config.get("quantidade_padrao") or 5))
+        self.qtd.setFixedWidth(70)
+        self.qtd.setToolTip("Quantas músicas o botão Selecionar os melhores marca")
+        self.qtd.valueChanged.connect(self._quantidade_mudou)
+        filtros2.addWidget(self.qtd)
+        self.btn_filtros = QPushButton("Ocultar fontes ↑")
+        self.btn_filtros.setObjectName("fantasma")
+        self.btn_filtros.clicked.connect(self._alternar_filtros)
+        filtros2.addWidget(self.btn_filtros)
         raiz.addLayout(filtros2)
 
         # --------------------------------------------------------- status
@@ -296,10 +329,30 @@ class SearchPage(QWidget):
                 f"Os formatos de cada resultado são verificados automaticamente.</span></div>")
 
     # ------------------------------------------------------------------ busca
-    def _modo_varias_mudou(self, ativo: bool) -> None:
-        self.painel_varias.setVisible(ativo)
-        if ativo and not self.campos_extras:
+    def _aba_busca_mudou(self, indice: int) -> None:
+        self.paineis_busca.setCurrentIndex(indice)
+        if indice == 1 and not self.campos_extras:
             self._adicionar_campo()
+        self._mostrar_campos_busca(True)
+
+    def _mostrar_campos_busca(self, mostrar: bool) -> None:
+        self.paineis_busca.setVisible(mostrar)
+        self.lbl_descricao.setVisible(mostrar)
+        self.btn_editar_busca.setText("Recolher campos ↑" if mostrar else "Editar pesquisa ↓")
+
+    def _alternar_campos_busca(self) -> None:
+        self._mostrar_campos_busca(self.paineis_busca.isHidden())
+
+    def _alternar_filtros(self) -> None:
+        mostrar = self.painel_filtros.isHidden()
+        self.painel_filtros.setVisible(mostrar)
+        self.btn_filtros.setText("Ocultar fontes ↑" if mostrar else "Fontes / ordem ↓")
+
+    def _botoes_pesquisa(self, buscando: bool) -> None:
+        self.btn_buscar.setEnabled(not buscando)
+        self.btn_buscar_varias.setEnabled(not buscando)
+        self.btn_buscar.setText("Pesquisando…" if buscando else "Pesquisar")
+        self.btn_buscar_varias.setText("Pesquisando…" if buscando else "Pesquisar todas")
 
     def _adicionar_campo(self) -> None:
         linha = QWidget()
@@ -324,16 +377,19 @@ class SearchPage(QWidget):
         linha.deleteLater()
 
     def pesquisar(self) -> None:
-        consultas = [self.campo.text().strip()]
-        if self.chk_varias.isChecked():
+        multiplas = self.abas_busca.currentIndex() == 1
+        consultas = [self.campo_varias.text().strip() if multiplas else self.campo.text().strip()]
+        if multiplas:
             consultas.extend(campo.text().strip() for _, campo in self.campos_extras)
         consultas = [consulta for consulta in consultas if consulta]
         if not consultas or self._buscando:
             return
         consulta = consultas[0]
         self._buscando = True
-        self.btn_buscar.setEnabled(False)
-        self.btn_buscar.setText("pesquisando…")
+        self._botoes_pesquisa(True)
+        self._mostrar_campos_busca(False)
+        self.painel_filtros.hide()
+        self.btn_filtros.setText("Fontes / ordem ↓")
         self.barra.setVisible(True)
         self.barra.setValue(2)
         self.status.setText(f"Pesquisando {len(consultas)} termos…" if len(consultas) > 1
@@ -375,15 +431,16 @@ class SearchPage(QWidget):
     def _erro(self, msg: str) -> None:
         self._buscando = False
         self.barra.setVisible(False)
-        self.btn_buscar.setEnabled(True)
-        self.btn_buscar.setText("Pesquisar")
+        self._botoes_pesquisa(False)
+        self._mostrar_campos_busca(True)
+        self.painel_filtros.show()
+        self.btn_filtros.setText("Ocultar fontes ↑")
         self.status.setText(f"Não foi possível pesquisar: {msg}")
         self.mensagem.emit(f"Falha na pesquisa: {msg[:120]}")
 
     def _mostrar(self, dados: dict) -> None:
         self._buscando = False
-        self.btn_buscar.setEnabled(True)
-        self.btn_buscar.setText("Pesquisar")
+        self._botoes_pesquisa(False)
         self.barra.setVisible(False)
         self._limpar()
 
@@ -391,7 +448,7 @@ class SearchPage(QWidget):
         self.filtrados = list(dados.get("filtrados") or [])
         self._cards_filtrados = []
         self._mostrando_filtrados = False
-        self.btn_filtrados.setText(f"Mostrar resultados filtrados ({len(self.filtrados)})")
+        self.btn_filtrados.setText(f"Mostrar filtrados ({len(self.filtrados)})")
         self.btn_filtrados.setEnabled(bool(self.filtrados))
         self.banco.registrar_historico(
             "pesquisa", dados.get("consulta", ""),
@@ -494,17 +551,23 @@ class SearchPage(QWidget):
                                        f"{len(resultados)} resultado(s)", len(resultados))
         quantidade = len(self.filtrados)
         acao = 'Ocultar' if self._mostrando_filtrados else 'Mostrar'
-        self.btn_filtrados.setText(f"{acao} resultados filtrados ({quantidade})")
+        self.btn_filtrados.setText(f"{acao} filtrados ({quantidade})")
         self.btn_filtrados.setEnabled(bool(quantidade))
         self.btn_melhores.setEnabled(bool(self.cards))
         feitos = sum(bool(g.get('concluido')) for g in self._grupos_busca)
         self._status_base = f"{feitos}/{len(self._grupos_busca)} pesquisas concluídas · {len(self.cards)} resultado(s)"
         self.status.setText(self._status_base)
         self._atualizar_lote()
-        self._fila_verif.extend(c for c in novos if (not c.resultado.formatos or
-            (c.resultado.fonte == 'ytdlp' and not c.resultado.extra.get('metodos_consulta')))
-            and not c.resultado.extra.get('erro_detalhe'))
+        self._fila_verif.extend(c for c in novos if self._precisa_verificar(c.resultado))
+        self._ordenar_fila_por_grupo()
         self._verificar_proximo()
+
+    def _ordenar_fila_por_grupo(self) -> None:
+        # Em várias pesquisas, não deixar todos os resultados da primeira
+        # seção bloquearem os primeiros resultados das outras seções.
+        ordem = {card: (i, g) for g, grupo in enumerate(self._grupos_busca)
+                 for i, card in enumerate(grupo['cards'] + grupo['cards_filtrados'])}
+        self._fila_verif.sort(key=lambda card: ordem.get(card, (10**9, 10**9)))
 
     def _terminar_varias(self, geracao: int, respostas: list[dict]) -> None:
         if geracao != self._geracao_busca or not self._buscando:
@@ -512,11 +575,10 @@ class SearchPage(QWidget):
         for i, dados in enumerate(respostas):
             self._receber_parcial(geracao, i, dados)
         self._buscando = False
-        self.btn_buscar.setEnabled(True)
-        self.btn_buscar.setText("Pesquisar")
+        self._botoes_pesquisa(False)
         self.barra.setVisible(False)
         self._status_base = f"{len(respostas)} pesquisa(s) · {len(self.cards)} resultado(s)"
-        self.status.setText(self._status_base)
+        self._status_verificacao()
         todos = [r for g in self._grupos_busca for r in g.get('resultados', []) + g['filtrados']]
         if self.filtrados:
             self._avisar_filtrados()
@@ -526,8 +588,7 @@ class SearchPage(QWidget):
     def _mostrar_varias(self, respostas: list[dict]) -> None:
         """Apresenta uma seção por termo, inclusive quando um deles falha."""
         self._buscando = False
-        self.btn_buscar.setEnabled(True)
-        self.btn_buscar.setText("Pesquisar")
+        self._botoes_pesquisa(False)
         self.barra.setVisible(False)
         self._limpar()
         todos = []
@@ -574,7 +635,7 @@ class SearchPage(QWidget):
             total_filtrados += len(filtrados)
             todos.extend(resultados + filtrados)
         self.vazio.setVisible(not respostas)
-        self.btn_filtrados.setText(f"Mostrar resultados filtrados ({total_filtrados})")
+        self.btn_filtrados.setText(f"Mostrar filtrados ({total_filtrados})")
         self.btn_filtrados.setEnabled(bool(total_filtrados))
         self.btn_melhores.setEnabled(bool(self.cards))
         self._status_base = f"{len(respostas)} pesquisa(s) · {len(self.cards)} resultado(s)"
@@ -644,10 +705,10 @@ class SearchPage(QWidget):
         total = len(self.filtrados)
         self.status.setText(
             f"{self._status_base}  ·  {total} resultado(s) de show/ao vivo "
-            f"fora da lista — use “Mostrar resultados filtrados”")
+            f"fora da lista — use “Mostrar filtrados”")
         self.mensagem.emit(
             f"{total} resultado(s) parecem gravação ao vivo e ficaram ocultos. "
-            f"Eles não foram descartados: veja em “Mostrar resultados filtrados”.")
+            f"Eles não foram descartados: veja em “Mostrar filtrados”.")
 
     def _alternar_filtrados(self) -> None:
         """Mostra/esconde os resultados filtrados — nunca os apaga."""
@@ -663,7 +724,7 @@ class SearchPage(QWidget):
             for grupo in self._grupos_busca:
                 grupo["cards_filtrados"] = []
             self._mostrando_filtrados = False
-            self.btn_filtrados.setText(f"Mostrar resultados filtrados ({len(self.filtrados)})")
+            self.btn_filtrados.setText(f"Mostrar filtrados ({len(self.filtrados)})")
             self.btn_melhores.setEnabled(bool(self.cards))
             self.vazio.setVisible(not self.cards and not self._grupos_busca)
             self._atualizar_lote()
@@ -684,14 +745,12 @@ class SearchPage(QWidget):
                     self.lista.insertWidget(self.lista.count() - 1, card)
         self._mostrando_filtrados = True
         self.btn_melhores.setEnabled(bool(self.cards))
-        self.btn_filtrados.setText(f"Ocultar resultados filtrados ({len(self.filtrados)})")
+        self.btn_filtrados.setText(f"Ocultar filtrados ({len(self.filtrados)})")
         self.mensagem.emit("Resultados filtrados exibidos — confira o aviso de ao vivo "
                            "antes de marcar qualquer um deles.")
         self._atualizar_lote()
         # Os resultados filtrados também recebem as quatro consultas quando exibidos.
-        self._fila_verif.extend(c for c in self._cards_filtrados
-                                if not c.resultado.extra.get("metodos_consulta")
-                                and not c.resultado.extra.get("erro_detalhe"))
+        self._fila_verif.extend(c for c in self._cards_filtrados if self._precisa_verificar(c.resultado))
         self._verificar_proximo()
 
     # ---------------------------------------------------------- pré-visualização
@@ -721,7 +780,7 @@ class SearchPage(QWidget):
         self._cards_filtrados = []
         self._mostrando_filtrados = False
         try:
-            self.btn_filtrados.setText("Mostrar resultados filtrados (0)")
+            self.btn_filtrados.setText("Mostrar filtrados (0)")
             self.btn_filtrados.setEnabled(False)
             self.btn_melhores.setEnabled(False)
             self.previa.fechar()
@@ -739,12 +798,19 @@ class SearchPage(QWidget):
         self._atualizar_lote()
 
     # ------------------------------------------- verificação de qualidade
+    @staticmethod
+    def _precisa_verificar(resultado: TrackResult) -> bool:
+        if resultado.extra.get('erro_detalhe'):
+            return False
+        metodos = resultado.extra.get('metodos_consulta') or []
+        incompleto = (resultado.extra.get('consulta_em_andamento') or
+                      any(m.get('estado') == 'consultando' for m in metodos))
+        return (not resultado.formatos or
+                (resultado.fonte == 'ytdlp' and (not metodos or incompleto)))
+
     def _agendar_verificacoes(self) -> None:
         """Consulta os formatos dos resultados exibidos, em segundo plano."""
-        pendentes = [c for c in self.cards
-                     if (not c.resultado.formatos or
-                         (c.resultado.fonte == "ytdlp" and not c.resultado.extra.get("metodos_consulta")))
-                     and not c.resultado.extra.get("erro_detalhe")]
+        pendentes = [c for c in self.cards if self._precisa_verificar(c.resultado)]
         self._fila_verif = pendentes
         self._verif_total = len(self._fila_verif)
         if self._fila_verif:
@@ -754,21 +820,39 @@ class SearchPage(QWidget):
         self._verificar_proximo()
 
     def _verificar_proximo(self) -> None:
+        from copy import deepcopy
         while self._fila_verif and self._verif_ativas < PARALELAS:
             card = self._fila_verif.pop(0)
             fonte = self._fonte_de(card.resultado.fonte)
             if not fonte:
                 continue
             self._verif_ativas += 1
+            card.btn_verificar.setText("Consultando…")
+            card.btn_verificar.setEnabled(False)
+            token = object()
+            card._token_verificacao = token
+            # Não modificar o resultado da interface numa thread de trabalho.
+            consulta = deepcopy(card.resultado)
+            kwargs = {}
+            if card.resultado.fonte == 'ytdlp':
+                kwargs['ao_parcial'] = lambda r, c=card, t=token: self.formato_parcial.emit(c, t, r)
             EXECUTOR_GLOBAL.rodar(
-                fonte.detalhar, card.resultado,
+                fonte.detalhar, consulta, **kwargs,
                 ao_resultado=lambda r, c=card: self._detalhe_pronto(c, r),
                 ao_erro=lambda m, c=card: self._detalhe_falhou(c, m),
             )
         self._status_verificacao()
 
+    def _receber_formato_parcial(self, card: ResultCard, token, resultado: TrackResult) -> None:
+        if card not in self.cards or getattr(card, '_token_verificacao', None) is not token:
+            return
+        self._aplicar_detalhe(card, resultado)
+
     def _status_verificacao(self) -> None:
         if self._fila_verif or self._verif_ativas:
+            base = getattr(self, "_status_base", "Resultados")
+            self.status.setText(f"{base} · formatos: {self._verif_ativas} consultando, "
+                                f"{len(self._fila_verif)} aguardando")
             return
         base = getattr(self, "_status_base", None)
         if not base:
@@ -815,13 +899,7 @@ class SearchPage(QWidget):
         from ...sources import por_id
         return por_id(fid, self.config)
 
-    def _detalhe_pronto(self, card: ResultCard, resultado: TrackResult) -> None:
-        self._verif_ativas = max(0, self._verif_ativas - 1)
-        if card not in self.cards:
-            self._verificar_proximo()
-            return
-        # A consulta em segundo plano pode descobrir sinais de ao vivo depois
-        # que a lista já foi exibida. Avisar no cartão sem movê-lo de surpresa.
+    def _aplicar_detalhe(self, card: ResultCard, resultado: TrackResult) -> None:
         from ...pesquisa import filtros
         analise = filtros.analisar(resultado)
         resultado.ao_vivo = analise.ao_vivo
@@ -839,7 +917,15 @@ class SearchPage(QWidget):
                 card.combo.blockSignals(False)
             self._formato_mudou(card)
         except RuntimeError:
-            pass                                   # card já foi removido
+            pass
+
+    def _detalhe_pronto(self, card: ResultCard, resultado: TrackResult) -> None:
+        self._verif_ativas = max(0, self._verif_ativas - 1)
+        if card not in self.cards:
+            self._verificar_proximo()
+            return
+        card._token_verificacao = None
+        self._aplicar_detalhe(card, resultado)
         if not resultado.formatos:
             self._falhas_total += 1
             motivo = resultado.extra.get("erro_detalhe")
@@ -852,10 +938,27 @@ class SearchPage(QWidget):
         if card not in self.cards:
             self._verificar_proximo()
             return
+        card._token_verificacao = None
         try:
-            if hasattr(card, "btn_verificar"):
-                card.btn_verificar.setText("verificar de novo")
-                card.btn_verificar.setEnabled(True)
+            card.resultado.extra.pop('consulta_em_andamento', None)
+            for metodo in card.resultado.extra.get('metodos_consulta') or []:
+                if metodo.get('estado') == 'consultando':
+                    metodo.update(estado='falhou', motivo='consulta interrompida')
+            card.resultado.extra["erro_detalhe"] = "Falha ao consultar formatos; tente novamente."
+            card._preencher_selos()
+            formato = card.combo.currentData()
+            card.combo.blockSignals(True)
+            try:
+                card._preencher_formatos()
+                self._restaurar_formato(card, formato)
+            finally:
+                card.combo.blockSignals(False)
+            card.btn_verificar.setVisible(True)
+            card.btn_verificar.setText("Tentar de novo")
+            card.btn_verificar.setEnabled(True)
+            if not card.resultado.formatos:
+                self._falhas_total += 1
+                self._falhas_verif.append('Falha ao consultar formatos; tente novamente.')
         except RuntimeError:
             pass
         self.mensagem.emit(f"Não foi possível verificar a qualidade: {msg[:100]}")
@@ -865,6 +968,8 @@ class SearchPage(QWidget):
     def _detalhar(self, card: ResultCard) -> None:
         """Verificação manual (botão do cartão ou "tentar de novo")."""
         card.resultado.extra.pop("erro_detalhe", None)
+        card.resultado.extra.pop("metodos_consulta", None)
+        card.resultado.extra.pop("consulta_em_andamento", None)
         card.resultado.aviso = "qualidade a verificar"
         try:
             card._preencher_selos()
@@ -880,8 +985,9 @@ class SearchPage(QWidget):
             card.btn_verificar.setText("verificando…")
         except RuntimeError:
             return
-        if card not in self._fila_verif:
-            self._fila_verif.insert(0, card)
+        if card in self._fila_verif:
+            self._fila_verif.remove(card)
+        self._fila_verif.insert(0, card)
         self._verificar_proximo()
 
     @staticmethod

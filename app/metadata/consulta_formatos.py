@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -88,7 +88,7 @@ def _erro_seguro(texto: str) -> str:
     return 'consulta falhou'
 
 
-def consultar(url: str, base: List[str], rodar, aviso_extracao) -> Dict[str, Any]:
+def consultar(url: str, base: List[str], rodar, aviso_extracao, ao_parcial=None) -> Dict[str, Any]:
     """Executa todos os métodos para o mesmo URL e cruza formatos por ID.
 
     Cada subprocesso recebe sua própria cópia temporária do cookie: yt-dlp pode
@@ -154,8 +154,21 @@ def consultar(url: str, base: List[str], rodar, aviso_extracao) -> Dict[str, Any
         except Exception:
             return {'nome': nome, 'estado': 'falhou', 'motivo': 'erro ao executar ou ler os cookies'}
 
+    resultados = [{'nome': nome, 'estado': 'consultando', 'formatos': []} for nome in NOMES]
     with ThreadPoolExecutor(max_workers=4) as pool:
-        resultados = list(pool.map(metodo, range(4)))
+        futuros = {pool.submit(metodo, i): i for i in range(4)}
+        for futuro in as_completed(futuros):
+            resultados[futuros[futuro]] = futuro.result()
+            if ao_parcial and any(r.get('formatos') for r in resultados):
+                try:
+                    ao_parcial(_consolidar(resultados))
+                except Exception:
+                    pass  # uma falha de interface não interrompe a consulta
+    return _consolidar(resultados)
+
+
+def _consolidar(resultados: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Combina somente dados técnicos, inclusive enquanto métodos estão pendentes."""
     # Priorizar metadados estruturados sobre os inferidos da tabela de texto.
     por_id: Dict[str, Dict[str, Any]] = {}
     for r in sorted(resultados, key=lambda x: x['nome'] == NOMES[0]):

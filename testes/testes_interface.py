@@ -47,6 +47,183 @@ class Interface(unittest.TestCase):
         self.app.processEvents()
         self.temp.cleanup()
 
+    def test_abas_independentes_e_espaco_dos_resultados(self):
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        self.janela.resize(1080, 680)
+        busca = self.janela.pagina_busca
+        busca.campo.setText('Busca normal guardada')
+        busca.abas_busca.setCurrentIndex(1)
+        busca.campo_varias.setText('Primeira busca')
+        busca.campos_extras[0][1].setText('Segunda busca')
+        self.app.processEvents()
+        antes = busca.area.viewport().height()
+        respostas = []
+        for nome in ('Primeira busca', 'Segunda busca'):
+            resultados = [TrackResult(nome + str(i), 'ytdlp', f'Música {i}', 'Artista',
+                           formatos=[AudioFormat(codec='opus', bitrate_kbps=128, format_id='251')],
+                           extra={'metodos_consulta':[{'nome':'JSON', 'estado':'ok', 'quantidade':1}]})
+                          for i in range(4)]
+            respostas.append({'consulta':nome, 'resultados':resultados, 'filtrados':[],
+                              'fontes':[], 'segundos':0, 'erros':{}})
+        def executar(fn, *args, **kwargs):
+            if fn is search_page.pesquisar_varias:
+                kwargs['ao_resultado'](respostas)
+        with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
+             patch.object(search_page.EXECUTOR_GLOBAL, 'rodar', side_effect=executar):
+            busca.btn_buscar_varias.click()
+        self.app.processEvents()
+        depois = busca.area.viewport().height()
+        self.assertTrue(busca.paineis_busca.isHidden())
+        self.assertGreater(depois, antes + 100)
+        self.assertGreaterEqual(depois, 320)
+        self.assertEqual(len(busca.cards), 8)
+        self.assertGreater(busca.area.verticalScrollBar().maximum(), 0)
+        busca.area.verticalScrollBar().setValue(busca.area.verticalScrollBar().maximum())
+        self.app.processEvents()
+        ultimo = busca.cards[-1].mapTo(busca.area.viewport(), busca.cards[-1].rect().center())
+        self.assertGreaterEqual(ultimo.y(), 0)
+        self.assertLess(ultimo.y(), busca.area.viewport().height())
+        busca.btn_editar_busca.click()
+        self.assertEqual(busca.campo_varias.text(), 'Primeira busca')
+        self.assertEqual(busca.campos_extras[0][1].text(), 'Segunda busca')
+        busca.abas_busca.setCurrentIndex(0)
+        self.assertEqual(busca.campo.text(), 'Busca normal guardada')
+        self.assertFalse(busca.paineis_busca.isHidden())
+
+    def test_formato_parcial_disponivel_e_escolha_preservada_ate_fim(self):
+        import threading, time
+        from copy import deepcopy
+        from app.models import AudioFormat, TrackResult
+        busca = self.janela.pagina_busca
+        liberar = threading.Event()
+        class Fonte:
+            def detalhar(self, resultado, ao_parcial=None):
+                resultado.formatos = [AudioFormat(codec='opus', bitrate_kbps=150, format_id='251'),
+                                      AudioFormat(codec='aac', bitrate_kbps=128, format_id='140')]
+                resultado.extra['metodos_consulta'] = [
+                    {'nome':'JSON', 'estado':'ok', 'quantidade':2},
+                    {'nome':'Lista', 'estado':'consultando'}]
+                resultado.extra['consulta_em_andamento'] = True
+                ao_parcial(deepcopy(resultado))
+                liberar.wait(5)
+                resultado.extra['metodos_consulta'][1]['estado'] = 'falhou'
+                resultado.extra.pop('consulta_em_andamento')
+                return resultado
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista')
+        try:
+            with patch.object(busca, '_fonte_de', return_value=Fonte()), \
+                 patch.object(busca, '_conferir_baixados'):
+                busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
+                               'fontes':[], 'segundos':0, 'erros':{}})
+                card = busca.cards[0]
+                limite = time.monotonic() + 4
+                while not card.resultado.formatos and time.monotonic() < limite:
+                    self.app.processEvents(); time.sleep(.01)
+                self.assertEqual(len(card.resultado.formatos), 2)
+                self.assertTrue(card.btn_formatos.isEnabled())
+                self.assertIn('1/2 métodos', card.lbl_metodos_qualidade.text())
+                self.assertEqual(busca._verif_ativas, 1)
+                i = next(i for i in range(card.combo.count()) if card.combo.itemData(i).format_id == '140')
+                card.combo.setCurrentIndex(i)
+                card.check.setChecked(True)
+                liberar.set()
+                limite = time.monotonic() + 4
+                while busca._verif_ativas and time.monotonic() < limite:
+                    self.app.processEvents(); time.sleep(.01)
+                self.assertEqual(busca._verif_ativas, 0)
+                self.assertEqual(card.combo.currentData().format_id, '140')
+                self.assertEqual(next(iter(busca._marcados.values()))['formato'].format_id, '140')
+                self.assertIn('2/2 métodos', card.lbl_metodos_qualidade.text())
+                self.assertIn('falhou', card.lbl_metodos_qualidade.toolTip())
+        finally:
+            liberar.set()
+
+    def test_comparador_real_de_codigo_publica_no_cartao_antes_do_fim(self):
+        import json, threading, time
+        from app.models import TrackResult
+        from app.sources.ytdlp import FonteYtDlp
+        busca = self.janela.pagina_busca
+        liberar = threading.Event()
+        fonte = FonteYtDlp(self.cfg)
+        formatos = [{'format_id':'251', 'acodec':'opus', 'vcodec':'none', 'abr':160, 'ext':'webm'},
+                    {'format_id':'140', 'acodec':'mp4a.40.2', 'vcodec':'none', 'abr':128, 'ext':'m4a'}]
+        def rodar(args, timeout):
+            if '-j' in args:
+                return 0, json.dumps({'formats':formatos}), ''
+            liberar.wait(5)
+            return 1, '', 'ERROR: HTTP Error 403'
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista', pagina_url='https://youtube.com/watch?v=123')
+        try:
+            with patch.object(busca, '_fonte_de', return_value=fonte), \
+                 patch.object(busca, '_conferir_baixados'), \
+                 patch.object(fonte, '_args_base', return_value=['yt-dlp']), \
+                 patch.object(fonte, '_rodar', side_effect=rodar):
+                busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
+                               'fontes':[], 'segundos':0, 'erros':{}})
+                card = busca.cards[0]
+                limite = time.monotonic() + 4
+                while not card.resultado.formatos and time.monotonic() < limite:
+                    self.app.processEvents(); time.sleep(.01)
+                self.assertEqual({card.combo.itemData(i).format_id for i in range(card.combo.count())}, {'251','140'})
+                self.assertTrue(card.btn_formatos.isEnabled())
+                self.assertEqual(busca._verif_ativas, 1)
+                liberar.set()
+                limite = time.monotonic() + 4
+                while busca._verif_ativas and time.monotonic() < limite:
+                    self.app.processEvents(); time.sleep(.01)
+                self.assertEqual(busca._verif_ativas, 0)
+                self.assertEqual({f.format_id for f in card.resultado.formatos}, {'251','140'})
+                self.assertIn('403', card.lbl_metodos_qualidade.toolTip())
+        finally:
+            liberar.set()
+
+    def test_erro_apos_parcial_preserva_escolha_e_permite_nova_consulta(self):
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        formatos = [AudioFormat(codec='opus', bitrate_kbps=160, format_id='251'),
+                    AudioFormat(codec='aac', bitrate_kbps=128, format_id='140')]
+        r = TrackResult('id', 'ytdlp', 'Música', formatos=formatos,
+                        extra={'consulta_em_andamento':True, 'metodos_consulta':[
+                            {'nome':'JSON', 'estado':'ok', 'quantidade':2},
+                            {'nome':'Lista', 'estado':'consultando'}]})
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
+            busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
+                           'fontes':[], 'segundos':0, 'erros':{}})
+            card = busca.cards[0]
+            i = next(i for i in range(card.combo.count()) if card.combo.itemData(i).format_id == '140')
+            card.combo.setCurrentIndex(i)
+            card.check.setChecked(True)
+            busca._detalhe_falhou(card, 'erro simulado')
+            self.assertEqual(card.combo.currentData().format_id, '140')
+            self.assertEqual(next(iter(busca._marcados.values()))['formato'].format_id, '140')
+            self.assertIn('Consulta incompleta', card.lbl_erro_qualidade.text())
+            self.assertEqual(card.resultado.extra['metodos_consulta'][1]['estado'], 'falhou')
+            self.assertFalse(card.btn_verificar.isHidden())
+            with patch.object(busca, '_verificar_proximo'):
+                busca._detalhar(card)
+            self.assertNotIn('metodos_consulta', card.resultado.extra)
+            self.assertEqual(card.combo.currentData().format_id, '140')
+
+    def test_verificacao_multipla_distribuida_entre_secoes(self):
+        from app.models import TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        busca._buscando = True
+        busca._geracao_busca += 1
+        geracao = busca._geracao_busca
+        busca._iniciar_grupos_parciais(['A', 'B'])
+        with patch.object(search_page, 'PARALELAS', 0):
+            for i, nome in enumerate(('A', 'B')):
+                dados = {'consulta':nome, 'resultados':[TrackResult(nome+str(j), 'ytdlp', nome, 'Artista')
+                                                         for j in range(3)], 'filtrados':[],
+                         'fontes':[], 'segundos':0, 'erros':{}}
+                busca._receber_parcial(geracao, i, dados)
+        self.assertEqual([c.resultado.uid for c in busca._fila_verif],
+                         ['A0', 'B0', 'A1', 'B1', 'A2', 'B2'])
+        busca._buscando = False
+
     def test_pesquisa_selecao_navegacao_capas_e_inicio(self):
         from app.models import AudioFormat, CoverResult, TrackMeta, TrackResult
         from app.ui.pages import search_page, downloads_page
@@ -257,8 +434,8 @@ class Interface(unittest.TestCase):
         from app.models import AudioFormat, TrackResult
         from app.ui.pages import search_page
         busca = self.janela.pagina_busca
-        busca.chk_varias.setChecked(True)
-        busca.campo.setText("Guns")
+        busca.abas_busca.setCurrentIndex(1)
+        busca.campo_varias.setText("Guns")
         busca.campos_extras[0][1].setText("Pink Floyd")
         busca.btn_mais_campo.click()
         busca.campos_extras[-1][1].setText("Led Zeppelin")
@@ -334,8 +511,8 @@ class Interface(unittest.TestCase):
         from app import search_service
         from app.models import AudioFormat, TrackResult
         busca = self.janela.pagina_busca
-        busca.chk_varias.setChecked(True)
-        busca.campo.setText('Guns')
+        busca.abas_busca.setCurrentIndex(1)
+        busca.campo_varias.setText('Guns')
         busca.campos_extras[0][1].setText('Pink Floyd')
         def pesquisar_fake(termo, *args, **kwargs):
             if termo == 'Guns':
@@ -361,7 +538,7 @@ class Interface(unittest.TestCase):
     def test_campos_multiplos_remocao_modo_simples_e_primeiro_vazio(self):
         from app.ui.pages import search_page
         busca = self.janela.pagina_busca
-        busca.chk_varias.setChecked(True)
+        busca.abas_busca.setCurrentIndex(1)
         busca.campos_extras[0][1].setText('Somente este')
         busca.btn_mais_campo.click()
         w = busca.campos_extras[-1][0]
@@ -374,7 +551,7 @@ class Interface(unittest.TestCase):
         self.assertIs(chamadas[0][0], search_page.pesquisar)
         self.assertEqual(chamadas[0][1][0], 'Somente este')
         busca._erro('teste')
-        busca.chk_varias.setChecked(False)
+        busca.abas_busca.setCurrentIndex(0)
         busca.campo.setText('Busca simples')
         chamadas.clear()
         with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
@@ -613,8 +790,8 @@ class Interface(unittest.TestCase):
         from app import search_service
         from app.models import AudioFormat, TrackResult
         busca = self.janela.pagina_busca
-        busca.chk_varias.setChecked(True)
-        busca.campo.setText('Lenta')
+        busca.abas_busca.setCurrentIndex(1)
+        busca.campo_varias.setText('Lenta')
         busca.campos_extras[0][1].setText('Rápida')
         liberar = threading.Event()
         def pesquisar_fake(termo, *args, **kwargs):
@@ -761,8 +938,8 @@ class Interface(unittest.TestCase):
             busca._mostrar(dados)
         card = busca.cards[0]
         for nome in ('Lista -F', 'JSON -j', 'Lista + JSON', 'Biblioteca Python'):
-            self.assertIn(nome, card.lbl_metodos_qualidade.text())
-        self.assertIn('consulta falhou', card.lbl_metodos_qualidade.text())
+            self.assertIn(nome, card.lbl_metodos_qualidade.toolTip())
+        self.assertIn('consulta falhou', card.lbl_metodos_qualidade.toolTip())
         self.assertIn('Lista -F', card.lbl_origem_formato.text())
         card.combo.setCurrentIndex(1)
         self.assertIn('Biblioteca Python', card.lbl_origem_formato.text())

@@ -194,6 +194,7 @@ QLineEdit#busca {{
     background: #1B0526;
 }}
 QLineEdit#busca:focus {{ border: 1px solid {c1}; }}
+QComboBox#seletorFormatos {{ padding: 5px 9px; border-radius: 8px; }}
 QComboBox::drop-down {{ border: none; width: 24px; }}
 QComboBox QAbstractItemView {{
     background: {p['surface']};

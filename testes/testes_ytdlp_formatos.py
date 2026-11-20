@@ -75,6 +75,25 @@ class Listagem(unittest.TestCase):
         self.assertEqual(self.resultado.formatos[0].bitrate_kbps, 128)
         self.assertNotIn('erro_detalhe', self.resultado.extra)
 
+    def test_resultado_parcial_salvo_volta_a_consultar_ao_reabrir(self):
+        from app import estado_musicas
+        from app.models import AudioFormat
+        self.resultado.formatos = [AudioFormat(codec='opus', format_id='251')]
+        self.resultado.extra.update(consulta_em_andamento=True, metodos_consulta=[
+            {'nome':'JSON -j', 'estado':'ok', 'quantidade':1},
+            {'nome':'Lista -F', 'estado':'consultando', 'quantidade':0}])
+        dados = estado_musicas.serializar_pedido({'resultado':self.resultado,
+                                                  'formato':self.resultado.formatos[0]})
+        restaurado = estado_musicas.desserializar_pedido(dados)
+        self.assertTrue(restaurado['resultado'].extra['consulta_em_andamento'])
+        with patch.object(self.fonte, '_args_base', return_value=['yt-dlp']), \
+             patch.object(self.fonte, '_rodar', return_value=(0, payload([audio(), audio('140', 90)]), '')) as rodar:
+            self.fonte.detalhar(restaurado['resultado'])
+        self.assertEqual(rodar.call_count, 4)
+        self.assertEqual({f.format_id for f in restaurado['resultado'].formatos}, {'251','140'})
+        self.assertNotIn('consulta_em_andamento', restaurado['resultado'].extra)
+        self.assertEqual(restaurado['formato'].format_id, '251')
+
     def test_config_antiga_ignorada_e_cookie_atual_explicito(self):
         with tempfile.TemporaryDirectory() as d:
             base = Path(d); cookie = base / 'cookies.txt'; cookie.write_text('exemplo')

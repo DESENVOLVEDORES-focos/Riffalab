@@ -34,7 +34,7 @@ def serializar_pedido(pedido: dict) -> dict:
     d['formatos'] = [_formato(f, r.fonte) for f in r.formatos]
     extra = r.extra or {}
     d['extra'] = {k: extra[k] for k in ('id', 'url', 'caminho', 'canal', 'titulo_original',
-                    'metodos_consulta', 'erro_detalhe') if k in extra}
+                    'metodos_consulta', 'consulta_em_andamento', 'erro_detalhe') if k in extra}
     return {'resultado': d, 'formato': _formato(pedido.get('formato'), r.fonte),
             'edicao': dict(pedido.get('edicao') or {})}
 

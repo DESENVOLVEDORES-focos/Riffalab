@@ -26,3 +26,7 @@ Nenhuma dessas duas ações baixa o áudio. Após a preparação, use **Baixar s
 
 ## Testes e limites
 Os testes foram feitos em Linux com Qt offscreen, fontes simuladas e FFmpeg local, inclusive reabertura da janela e gravação real de tags em um áudio de teste. Não houve teste no Windows nem testes de pesquisa/download nos serviços externos nesta sessão. As fontes e os formatos podem mudar ou ficar indisponíveis.
+
+## Ajustes após a revisão
+
+O formato escolhido é preservado quando uma verificação posterior não o encontra. Nesse caso ele aparece como **não confirmado**: se estiver indisponível, o download falha e informa o motivo, sem mudar para outro formato por conta própria. A opção automática **Melhor áudio disponível** continua buscando o melhor áudio. Apagar o álbum no editor também remove a tag de álbum antiga do novo arquivo, sem alterar o original.

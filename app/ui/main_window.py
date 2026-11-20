@@ -158,7 +158,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(mensagem)
             self.toast.mostrar(mensagem)
         self._sincronizar_contador()
-        return adicionada or ja_existe
+        # Uma duplicata só conta como transferida se o estado existente puder
+        # ser salvo; caso contrário as marcações da pesquisa devem permanecer.
+        return adicionada or (ja_existe and self.pagina_downloads._persistir_selecoes())
 
     def _ao_processar(self, msg: str) -> None:
         self.toast.mostrar(msg)
@@ -221,6 +223,7 @@ class MainWindow(QMainWindow):
                 evento.ignore()
                 return
         # Ignora respostas de pesquisas que acabem depois da janela fechar.
+        self.fila.encerrar()
         self.pagina_busca._geracao_busca += 1
         self.pagina_busca._buscando = False
         self.pagina_downloads._a_preparar.clear()

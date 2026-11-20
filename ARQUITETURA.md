@@ -168,10 +168,9 @@ linha de comando, e foi (ver §14).
 ```
 
 **Miniatura x capa final.** O cartão mostra `resultado.thumb_url`, que vem da
-plataforma (`i.ytimg.com/...` nos resultados do yt-dlp). A cascata de capas
-(iTunes → Cover Art Archive → miniatura) só roda no `pipeline`, depois do
-download, e o resultado vai para o APIC do MP3 — nunca para a lista de
-resultados. Ou seja: a imagem da pesquisa é sempre a do vídeo.
+plataforma (`i.ytimg.com/...` nos resultados do yt-dlp). A busca de capas de single é apresentada para revisão antes do download;
+a miniatura não é aplicada como capa substituta. A escolha do usuário pode
+ser gravada no APIC do MP3 ou a música pode ser preparada sem capa. Ou seja: a imagem da pesquisa é sempre a do vídeo.
 
 ### 3.2 Processamento (fila, um job por vez)
 
@@ -183,14 +182,14 @@ resultados. Ou seja: a imagem da pesquisa é sempre a do vídeo.
 pipeline.processar_resultado():                ◀── callbacks de progresso (0-100)
   1. fonte.baixar()                  → temp/<ts>_<hash>/origem.<ext>
        └─ yt-dlp: tenta a faixa SÓ DE ÁUDIO escolhida (formato "251", "140"...).
-          Se ela não existir/falhar, repete com "bestaudio/best", que aceita o
-          arquivo muxado — o ffmpeg extrai o áudio dele. O vídeo nunca é baixado
-          no caminho normal (ver ANALISE-DA-PROPOSTA.md §3.1).
+          Uma escolha específica indisponível retorna erro, sem trocar de formato.
+          A opção automática usa "bestaudio/best" e pode recorrer a arquivo
+          muxado, do qual o ffmpeg extrai o áudio.
   2. audio_probe.analisar()          → codec/bitrate/taxa/duração REAIS do arquivo
   2.5 ia.identificador.identificar() → (só com ia_ativa) título/artista/álbum/etc.
        └─ confere o álbum no MusicBrainz antes de aceitar; falhou? segue sem IA
   3. metadata.covers.metadados_completos()  → título/artista/álbum/ano/faixa/gênero
-     metadata.covers.encontrar_capa()       → JPG do ÁLBUM (cache em capas/cache)
+     metadata.covers.encontrar_capa()       → candidatos de single (revisão manual)
   4. convert.converter_para_mp3()    → -c:a copy quando já é MP3 (sem reencode)
   5. tagging.gravar()                → ID3v2.3 + APIC (capa frontal) [+ ID3v1]
   6. organizer.caminho_destino/resolver_conflito/mover()

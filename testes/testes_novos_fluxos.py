@@ -87,6 +87,54 @@ class NovosFluxos(unittest.TestCase):
                              ('Título certo', 'Artista certo', 'Álbum certo'))
             self.assertFalse(tags.getall('APIC'))
 
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg não disponível')
+    def test_album_vazio_apaga_tag_antiga_ao_processar_e_apos_reabrir(self):
+        from dataclasses import asdict
+        from app import pipeline
+        from app.sources.local_library import FonteBibliotecaLocal
+        from mutagen.id3 import ID3, TALB
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origem = base / 'original.mp3'
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                            'sine=frequency=440:duration=0.5', str(origem)], check=True)
+            tags = ID3(str(origem))
+            tags.add(TALB(encoding=3, text='Álbum antigo'))
+            tags.save(str(origem), v2_version=3)
+            cfg = Config(base / 'config.json')
+            cfg.dados.update(pasta_saida=str(base / 'saida'), ia_ativa=False)
+            fmt = AudioFormat(codec='mp3', container='mp3', url=str(origem))
+            r = TrackResult('local-id', 'biblioteca_local', 'Música', 'Artista', formatos=[fmt])
+            edit = {'titulo': 'Música', 'artista': 'Artista', 'album': ''}
+            with patch.object(pipeline.covers, 'metadados_completos', return_value={}), \
+                 patch.object(pipeline, 'PASTA_TEMP', base / 'temp'):
+                prep = preparacao.preparar_musica(r, cfg, edicao=edit, sem_capa=True)
+                # Representa os dados salvos pela versão anterior, sem apagar_tags.
+                salvo = {'pedido': estado_musicas.serializar_pedido({'resultado':r, 'formato':fmt, 'edicao':edit}),
+                         'marcada': True, 'preparacao': {'meta':asdict(prep['meta']),
+                         'capa':asdict(prep['capa']), 'ident':None}}
+                pedido, _, restaurada = estado_musicas.desserializar_selecao(salvo)
+                self.assertEqual(restaurada['apagar_tags'], ['album'])
+                resultado = pipeline.processar_resultado(pedido['resultado'], cfg, pedido['formato'],
+                           fonte=FonteBibliotecaLocal(cfg), preparacao=restaurada)
+            self.assertTrue(resultado['ok'], resultado)
+            self.assertNotIn('TALB', ID3(resultado['caminho']))
+            self.assertEqual(str(ID3(str(origem))['TALB']), 'Álbum antigo')
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg não disponível')
+    def test_album_desconhecido_sem_edicao_nao_apaga_tag_original(self):
+        from app import tagging
+        from mutagen.id3 import ID3, TALB
+        with tempfile.TemporaryDirectory() as d:
+            origem = Path(d) / 'original.mp3'
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                            'sine=frequency=440:duration=0.5', str(origem)], check=True)
+            tags = ID3(str(origem))
+            tags.add(TALB(encoding=3, text='Álbum conhecido'))
+            tags.save(str(origem), v2_version=3)
+            tagging.gravar(origem, TrackMeta(titulo='Música', artista='Artista', album=''))
+            self.assertEqual(str(ID3(str(origem))['TALB']), 'Álbum conhecido')
+
     def test_repeticao_cria_novo_job_conservando_formato_e_preparacao(self):
         with tempfile.TemporaryDirectory() as d:
             cfg = Config(Path(d) / 'config.json')

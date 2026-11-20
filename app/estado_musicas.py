@@ -59,7 +59,8 @@ def serializar_selecao(linha) -> dict:
         capa = asdict(prep['capa'])
         capa['alternativas'] = []
         d['preparacao'] = {'meta': asdict(prep['meta']), 'capa': capa,
-                            'ident': asdict(prep['ident']) if prep.get('ident') else None}
+                            'ident': asdict(prep['ident']) if prep.get('ident') else None,
+                            'apagar_tags': list(prep.get('apagar_tags') or [])}
     return d
 
 
@@ -71,6 +72,13 @@ def desserializar_selecao(d: dict) -> tuple[dict, bool, dict | None]:
         capa = _construir(CoverResult, p['capa'])
         # Capas removidas não podem ser aceitas silenciosamente.
         if not capa.ok or Path(capa.caminho).is_file():
+            apagar = [x for x in p.get('apagar_tags', []) if x == 'album']
+            # Migração de seleções preparadas pela versão anterior, que já
+            # guardava a edição mas ainda não registrava remoção da tag.
+            edicao = pedido.get('edicao') or {}
+            if 'album' in edicao and not str(edicao['album']).strip() and 'album' not in apagar:
+                apagar.append('album')
             preparacao = {'meta': _construir(TrackMeta, p['meta']), 'capa': capa,
-                          'ident': _construir(Identificacao, p['ident']) if p.get('ident') else None}
+                          'ident': _construir(Identificacao, p['ident']) if p.get('ident') else None,
+                          'apagar_tags': apagar}
     return pedido, bool(d.get('marcada', True)), preparacao

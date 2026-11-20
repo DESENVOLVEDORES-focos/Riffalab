@@ -45,7 +45,12 @@ class GerenciadorFila(QObject):
         self.jobs: Dict[int, Dict[str, Any]] = {}
         self._itens: Dict[int, Dict[str, Any]] = {}
         self._ativos = 0
+        self._encerrando = False
         self._lock = threading.Lock()
+
+    def encerrar(self) -> None:
+        """Não entrega callbacks nem inicia novos trabalhos depois do fechamento."""
+        self._encerrando = True
 
     # ------------------------------------------------------------------ API
     def adicionar(self, resultado: TrackResult, formato: Optional[AudioFormat] = None,
@@ -156,7 +161,7 @@ class GerenciadorFila(QObject):
 
     def _proximo(self) -> None:
         """Inicia tantos jobs quantos o limite permitir (e houver na fila)."""
-        while True:
+        while not self._encerrando:
             terminar = False
             with self._lock:
                 if not self.fila or self._ativos >= self._limite():
@@ -170,7 +175,19 @@ class GerenciadorFila(QObject):
                 return
             if item is None:
                 return
-            self._iniciar(item)
+            try:
+                self._iniciar(item)
+            except Exception as exc:
+                job = item['job']
+                job.update(status='erro', erro=str(exc), mensagem=str(exc))
+                try:
+                    self.banco.atualizar_download(job['id'], status='erro', erro=str(exc))
+                except Exception as erro_banco:
+                    self.mensagem.emit(f"Não foi possível salvar o erro no histórico: {erro_banco}")
+                self.job_atualizado.emit(dict(job))
+                with self._lock:
+                    self._ativos = max(0, self._ativos - 1)
+                self.fila_alterada.emit()
 
     def _iniciar(self, item: Dict[str, Any]) -> None:
         job = item["job"]
@@ -182,6 +199,8 @@ class GerenciadorFila(QObject):
         fonte = sources.por_id(item["resultado"].fonte, self.config)
 
         def ao_progresso(pct: int, msg: str) -> None:
+            if self._encerrando:
+                return
             job["progresso"] = int(pct)
             job["mensagem"] = msg
             job["status"] = self._status_por_etapa(msg)
@@ -189,9 +208,13 @@ class GerenciadorFila(QObject):
             self.job_atualizado.emit(dict(job))
 
         def ao_terminar(res: Any) -> None:
+            if self._encerrando:
+                return
             self._concluir(job, res)
 
         def ao_erro(msg: str) -> None:
+            if self._encerrando:
+                return
             job["status"] = "erro"
             job["erro"] = msg
             job["mensagem"] = msg

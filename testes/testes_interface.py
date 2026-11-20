@@ -512,6 +512,71 @@ class Interface(unittest.TestCase):
             fila.jobs[iniciados[1]['job']['id']]['status'] = 'cancelado'
             fila._ativos = 0
 
+    def test_fila_real_local_download_erro_e_tentativa(self):
+        import functools
+        import shutil
+        import subprocess
+        import threading
+        import time
+        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+        from mutagen.id3 import ID3
+        from app import pipeline
+        from app.models import AudioFormat, CoverResult, TrackMeta, TrackResult
+        if not shutil.which('ffmpeg') or not shutil.which('yt-dlp'):
+            self.skipTest('ffmpeg e yt-dlp são necessários')
+        class Handler(SimpleHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+        origem = self.base / 'som.wav'
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                        'sine=frequency=440:duration=0.5', str(origem)], check=True)
+        servidor = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(self.base)))
+        thread = threading.Thread(target=servidor.serve_forever, daemon=True)
+        thread.start()
+        pasta_saida = self.base / 'saída'
+        self.cfg.dados.update(pasta_saida=str(pasta_saida), usar_cookies=False)
+        pagina = self.janela.pagina_downloads
+        self.janela.ir_para('downloads')
+        base_url = f'http://127.0.0.1:{servidor.server_port}'
+        try:
+            for uid, nome, url in [('ok', 'Primeira', base_url + '/som.wav'),
+                                    ('erro', 'Segunda', base_url + '/falta.wav')]:
+                fmt = AudioFormat(format_id='bestaudio')
+                r = TrackResult(uid, 'ytdlp', nome, 'Artista', pagina_url=url)
+                self.assertTrue(pagina.adicionar_selecao({'resultado':r, 'formato':fmt}))
+                pagina.selecoes[-1].definir_preparacao({'meta':TrackMeta(titulo=nome, artista='Artista', album='Disco'),
+                                                         'capa':CoverResult(), 'ident':None})
+            with patch.object(pipeline, 'PASTA_TEMP', self.base / 'temp'):
+                pagina.btn_baixar.click()
+                limite = time.monotonic() + 40
+                while self.janela.fila.pendentes and time.monotonic() < limite:
+                    self.app.processEvents()
+                    time.sleep(.02)
+                self.assertEqual(self.janela.fila.pendentes, 0)
+                jobs = list(self.janela.fila.jobs.values())
+                self.assertEqual([j['status'] for j in jobs], ['finalizado', 'erro'])
+                self.assertTrue((pasta_saida / 'Artista' / 'Primeira.mp3').is_file())
+                self.assertFalse((pasta_saida / 'Artista' / 'Segunda.mp3').exists())
+                shutil.copyfile(origem, self.base / 'falta.wav')
+                linha = pagina.linhas[jobs[1]['id']]
+                self.assertFalse(linha.btn_tentar.isHidden())
+                linha.btn_tentar.click()
+                limite = time.monotonic() + 40
+                while self.janela.fila.pendentes and time.monotonic() < limite:
+                    self.app.processEvents()
+                    time.sleep(.02)
+                self.assertEqual(self.janela.fila.pendentes, 0)
+                tentativa = list(self.janela.fila.jobs.values())[-1]
+                self.assertEqual(tentativa['status'], 'finalizado', tentativa)
+                destino = pasta_saida / 'Artista' / 'Segunda.mp3'
+                self.assertTrue(destino.is_file())
+                self.assertEqual(str(ID3(str(destino))['TALB']), 'Disco')
+                self.assertFalse(ID3(str(destino)).getall('APIC'))
+        finally:
+            servidor.shutdown()
+            servidor.server_close()
+            thread.join()
+
     def test_editar_e_preparar_sem_capa_no_lote(self):
         from app.models import CoverResult, TrackMeta, TrackResult
         from app.ui.pages import downloads_page
@@ -583,6 +648,98 @@ class Interface(unittest.TestCase):
                 self.assertEqual(len(busca._marcados), 1)
         finally:
             liberar.set()
+
+    def test_formato_marcado_nao_e_trocado_por_consulta_incompleta(self):
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        f1 = AudioFormat(codec='opus', bitrate_kbps=150, format_id='251')
+        f2 = AudioFormat(codec='aac', bitrate_kbps=120, format_id='140')
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista', formatos=[f1, f2])
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
+            busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
+                            'fontes':[], 'segundos':1, 'erros':{}})
+            card = busca.cards[0]
+            i = next(i for i in range(card.combo.count()) if card.combo.itemData(i).format_id == '140')
+            card.combo.setCurrentIndex(i)
+            card.check.setChecked(True)
+            incompleto = TrackResult('id', 'ytdlp', 'Música', 'Artista', formatos=[f1],
+                                     extra={'metodos_consulta':[{'nome':'teste','estado':'ok'}]})
+            busca._detalhe_pronto(card, incompleto)
+        self.assertEqual(card.combo.currentData().format_id, '140')
+        self.assertIn('não confirmado', card.combo.currentText())
+        self.assertEqual(next(iter(busca._marcados.values()))['formato'].format_id, '140')
+        self.assertEqual(self.banco.ler_estado('marcacoes')[0]['formato']['format_id'], '140')
+
+    def test_lista_restaura_formato_nao_confirmado_pelo_cartao(self):
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        f1 = AudioFormat(codec='opus', bitrate_kbps=150, format_id='251')
+        f2 = AudioFormat(codec='aac', bitrate_kbps=120, format_id='140')
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista', formatos=[f1, f2])
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
+            busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
+                            'fontes':[], 'segundos':1, 'erros':{}})
+            card = busca.cards[0]
+            i = next(i for i in range(card.combo.count()) if card.combo.itemData(i).format_id == '140')
+            card.combo.setCurrentIndex(i)
+            card.check.setChecked(True)
+            busca._guardar_lista('Teste')
+            busca._limpar_marcados()
+            incompleto = TrackResult('id', 'ytdlp', 'Música', 'Artista', formatos=[f1])
+            busca._mostrar({'resultados':[incompleto], 'filtrados':[], 'consulta':'Música',
+                            'fontes':[], 'segundos':1, 'erros':{}})
+            busca._carregar_lista('Teste')
+            self.assertEqual(busca.cards[0].combo.currentData().format_id, '140')
+            self.assertIn('não confirmado', busca.cards[0].combo.currentText())
+
+    def test_transferencia_duplicata_nao_apaga_marcacao_se_salvar_falha(self):
+        from app.models import TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista')
+        self.assertTrue(self.janela.enfileirar({'resultado':r}))
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
+            busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
+                            'fontes':[], 'segundos':1, 'erros':{}})
+            busca.cards[0].check.setChecked(True)
+            with patch.object(self.janela.pagina_downloads, '_persistir_selecoes', return_value=False):
+                busca._processar_lote()
+        self.assertEqual(len(busca._marcados), 1)
+
+    def test_falha_sincrona_ao_iniciar_fila_libera_job_e_permite_retry(self):
+        from app.models import TrackResult
+        from app import downloader
+        fila = self.janela.fila
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista')
+        with patch.object(downloader.sources, 'por_id', side_effect=RuntimeError('falha ao iniciar')):
+            jid = fila.adicionar(r)
+        self.assertEqual(fila.jobs[jid]['status'], 'erro')
+        self.assertEqual(fila.ativos, 0)
+        self.assertEqual(fila.pendentes, 0)
+        self.assertEqual(len(fila.fila), 0)
+        with patch.object(downloader.EXECUTOR_GLOBAL, 'rodar') as rodar:
+            outro = fila.tentar_novamente(jid)
+        self.assertEqual(fila.jobs[outro]['status'], 'analisando')
+        rodar.assert_called_once()
+        fila.jobs[outro]['status'] = 'erro'
+
+    def test_callback_da_fila_ignorado_apos_fechar(self):
+        from app.models import TrackResult
+        from app import downloader
+        fila = self.janela.fila
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista')
+        with patch.object(downloader.EXECUTOR_GLOBAL, 'rodar') as rodar:
+            jid = fila.adicionar(r)
+        callbacks = rodar.call_args.kwargs
+        fila.encerrar()
+        self.banco.fechar()
+        callbacks['ao_progresso'](20, 'baixando')
+        callbacks['ao_resultado']({'ok':True})
+        callbacks['ao_erro']('erro')
+        self.assertEqual(fila.jobs[jid]['status'], 'analisando')
+        fila.jobs[jid]['status'] = 'erro'
 
     def test_resultado_exibe_quatro_metodos_e_origem_do_formato(self):
         from app.models import AudioFormat, TrackResult

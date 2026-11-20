@@ -1,6 +1,6 @@
 # Atualizar o RiffLab
 
-Esta atualização incremental é para `RiffLab-Windows-varias-pesquisas.zip` ou para a versão anterior depois de aplicar `RiffLab-atualizacao-varias-pesquisas.zip`. Para instalação nova, use o ZIP completo.
+Esta atualização incremental revisada pode ser aplicada sobre a versão de várias pesquisas ou sobre a atualização anterior de seis melhorias. Para instalação nova, use o ZIP completo.
 
 1. Aguarde os downloads em andamento terminarem e feche o RiffLab.
 2. Por segurança, copie seu `rifflab.db` e o `config.json` para uma pasta de backup. Não compartilhe esses arquivos sem conferir os dados pessoais que possam conter.

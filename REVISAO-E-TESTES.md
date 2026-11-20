@@ -32,3 +32,7 @@ Esta revisão foi feita durante o desenvolvimento, em Linux. O código usa Pytho
 - `INICIAR.bat` é o iniciador de desenvolvimento, não uma compilação. A criação de um `.exe` fica para uma etapa posterior.
 
 Use apenas conteúdo que você tenha direito de baixar. Não compartilhe cookies, chaves ou diagnósticos sem remover informações sensíveis.
+
+## Revisão adicional antes do teste
+
+Foram adicionados testes para preservar formatos marcados após consultas incompletas e restauração de listas, evitar a troca silenciosa de um formato específico, apagar uma tag de álbum explicitamente deixada em branco, falha de início de fila e callbacks após fechamento. Um teste de interface também processou duas músicas com yt-dlp e FFmpeg via HTTP local, incluindo erro e tentativa novamente. Essas verificações não substituem um teste no Windows ou no YouTube. Ao fechar com processamento ativo, o trabalho pode ser interrompido e não é retomado automaticamente.

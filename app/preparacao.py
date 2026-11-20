@@ -33,4 +33,5 @@ def preparar_musica(resultado: TrackResult, config: Config, progresso=None,
     else:
         capa = pipeline.buscar_capa(meta, config,
             resultado.thumb_url or resultado.extra.get('thumb', ''), progresso, ident=ident)
-    return {'meta': meta, 'ident': ident, 'capa': capa}
+    apagar_tags = ['album'] if edicao is not None and 'album' in edicao and not str(edicao['album']).strip() else []
+    return {'meta': meta, 'ident': ident, 'capa': capa, 'apagar_tags': apagar_tags}

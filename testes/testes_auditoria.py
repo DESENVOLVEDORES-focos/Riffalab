@@ -115,24 +115,47 @@ class Auditoria(unittest.TestCase):
                 sucesso = search_service.pesquisar('Canção', cfg, fontes_ids=['outra'])
                 self.assertEqual(len(sucesso['resultados']), 1)
 
-    def test_fallback_descarta_parcial_da_primeira_tentativa(self):
+    def test_falha_do_formato_escolhido_nao_troca_silenciosamente(self):
         with tempfile.TemporaryDirectory() as d:
             import io
             pasta = Path(d)
+            comandos = []
             class Processo:
                 def __init__(self, args, **kwargs):
-                    self.stdout = io.StringIO()
-                    self.returncode = 1 if args[args.index('-f') + 1] == '251' else 0
-                    arquivo = pasta / ('audio_orig.webm' if self.returncode else 'audio_orig.m4a')
-                    arquivo.write_bytes(b'x' * (100 if self.returncode else 10))
+                    comandos.append(args)
+                    self.stdout = io.StringIO('formato indisponível\n')
+                    self.returncode = 1
+                    (pasta / 'audio_orig.webm').write_bytes(b'parcial')
                 def wait(self): return self.returncode
             fonte = FonteYtDlp()
             r = TrackResult('id', 'ytdlp', 'Canção', pagina_url='https://www.youtube.com/watch?v=abc')
             with patch.object(fonte, '_args_base', return_value=['yt-dlp']), \
                  patch('app.sources.ytdlp.subprocess.Popen', Processo):
-                arquivo = fonte.baixar(r, AudioFormat(format_id='251'), pasta / 'audio')
-            self.assertEqual(arquivo.name, 'audio_orig.m4a')
+                with self.assertRaisesRegex(RuntimeError, 'nenhum outro formato foi usado'):
+                    fonte.baixar(r, AudioFormat(format_id='251'), pasta / 'audio')
+            self.assertEqual(len(comandos), 1)
+            self.assertEqual(comandos[0][comandos[0].index('-f') + 1], '251')
             self.assertFalse((pasta / 'audio_orig.webm').exists())
+
+    def test_opcao_automatica_usa_bestaudio_ou_best(self):
+        with tempfile.TemporaryDirectory() as d:
+            import io
+            pasta = Path(d)
+            comandos = []
+            class Processo:
+                def __init__(self, args, **kwargs):
+                    comandos.append(args)
+                    self.stdout = io.StringIO()
+                    self.returncode = 0
+                    (pasta / 'audio_orig.webm').write_bytes(b'completo')
+                def wait(self): return self.returncode
+            fonte = FonteYtDlp()
+            r = TrackResult('id', 'ytdlp', 'Canção', pagina_url='https://www.youtube.com/watch?v=abc')
+            with patch.object(fonte, '_args_base', return_value=['yt-dlp']), \
+                 patch('app.sources.ytdlp.subprocess.Popen', Processo):
+                arq = fonte.baixar(r, AudioFormat(format_id='bestaudio'), pasta / 'audio')
+            self.assertEqual(arq.name, 'audio_orig.webm')
+            self.assertEqual(comandos[0][comandos[0].index('-f') + 1], 'bestaudio/best')
 
     def test_conflito_de_mesmo_tamanho_nao_descarta_outra_musica(self):
         from app.organizer import resolver_conflito

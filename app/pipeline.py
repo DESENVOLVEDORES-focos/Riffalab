@@ -271,7 +271,8 @@ def processar_resultado(
             if preparacao is not None and not capa.ok:
                 # Se a origem já era MP3, copiar pode preservar uma capa antiga.
                 tagging.remover_capa(mp3_temp)
-            resultado_tags = tagging.gravar(mp3_temp, meta, id3v1=bool(config.get("gravar_id3v1", True)))
+            resultado_tags = tagging.gravar(mp3_temp, meta, id3v1=bool(config.get("gravar_id3v1", True)),
+                                            apagar_campos=(preparacao or {}).get("apagar_tags", []))
             if preparacao is not None and capa.ok and not resultado_tags.get("capa"):
                 raise RuntimeError(resultado_tags.get("aviso_capa") or "Não foi possível gravar a capa escolhida.")
             if meta_sem_capa:

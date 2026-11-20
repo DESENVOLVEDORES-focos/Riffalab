@@ -513,43 +513,35 @@ class FonteYtDlp(FonteBase):
             args[args.index("-f") + 1] = "bestaudio/best"
         args.append(url)
 
-        # 1ª tentativa: exatamente a faixa escolhida (só áudio).
-        # 2ª tentativa: "bestaudio/best" — cobre vídeos que não expõem faixa
-        # exclusiva de áudio (§4 da proposta: vídeo+áudio só quando necessário).
-        tentativas = [formato.format_id or "bestaudio/best"]
-        if tentativas[0] != "bestaudio/best":
-            tentativas.append("bestaudio/best")
+        # Uma escolha explícita de formato não deve ser trocada sem o usuário
+        # perceber. Apenas a opção automática permite "bestaudio/best".
+        escolha = formato.format_id or "bestaudio/best"
+        if escolha.startswith("bestaudio"):
+            escolha = "bestaudio/best"
+        args[args.index("-f") + 1] = escolha
+        p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, creationflags=CRIAR_SEM_JANELA,
+                             encoding="utf-8", errors="replace", env=ambiente_ferramentas())
         ultimos: List[str] = []
-        codigo = 0
-        for indice, escolha in enumerate(tentativas):
-            args[args.index("-f") + 1] = escolha
-            p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                 text=True, creationflags=CRIAR_SEM_JANELA,
-                                 encoding="utf-8", errors="replace", env=ambiente_ferramentas())
-            ultimos = []
-            assert p.stdout is not None
-            for linha in p.stdout:
-                ultimos.append(linha.strip())
-                ultimos = ultimos[-12:]
-                m = _RE_PCT.search(linha)
-                if m:
-                    emitir(progresso, 2 + int(float(m.group(1)) * 0.93),
-                           f"baixando… {m.group(1)}%")
-            p.stdout.close()
-            p.wait()
-            codigo = p.returncode
-            if codigo == 0:
-                break
-            if indice + 1 < len(tentativas):
-                # --no-part deixa arquivos incompletos com o nome definitivo.
-                # Não escolher acidentalmente um parcial da tentativa anterior.
-                for parcial in destino.parent.glob('audio_orig.*'):
-                    if parcial.is_file():
-                        parcial.unlink()
-                emitir(progresso, 2, "formato escolhido indisponível — tentando o melhor áudio disponível…")
-        if codigo != 0:
+        assert p.stdout is not None
+        for linha in p.stdout:
+            ultimos.append(linha.strip())
+            ultimos = ultimos[-12:]
+            m = _RE_PCT.search(linha)
+            if m:
+                emitir(progresso, 2 + int(float(m.group(1)) * 0.93),
+                       f"baixando… {m.group(1)}%")
+        p.stdout.close()
+        p.wait()
+        if p.returncode != 0:
+            # --no-part pode deixar um arquivo incompleto com nome definitivo.
+            for parcial in destino.parent.glob('audio_orig.*'):
+                if parcial.is_file():
+                    parcial.unlink()
             detalhe = " | ".join(l for l in ultimos if l)[-300:]
-            raise RuntimeError(f"yt-dlp falhou ({codigo}): {detalhe}")
+            contexto = (f"Não foi possível baixar o formato escolhido ({escolha}); "
+                        "nenhum outro formato foi usado. " if escolha != 'bestaudio/best' else "")
+            raise RuntimeError(f"{contexto}yt-dlp falhou ({p.returncode}): {detalhe}")
 
         encontrados = sorted(destino.parent.glob("audio_orig.*"),
                              key=lambda x: x.stat().st_size, reverse=True)

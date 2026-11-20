@@ -828,9 +828,13 @@ class SearchPage(QWidget):
         resultado.ao_vivo_certeza = analise.certeza
         resultado.sinais_ao_vivo = analise.sinais
         try:
+            pedido = self._marcados.get(self._chave_resultado(card.resultado))
+            formato = pedido.get('formato') if pedido else card.combo.currentData()
             card.combo.blockSignals(True)
             try:
                 card.aplicar_detalhes(resultado)
+                self._restaurar_formato(card, formato)
+                card._atualizar_origem_formato()
             finally:
                 card.combo.blockSignals(False)
             self._formato_mudou(card)
@@ -864,7 +868,14 @@ class SearchPage(QWidget):
         card.resultado.aviso = "qualidade a verificar"
         try:
             card._preencher_selos()
-            card._preencher_formatos()
+            formato = card.combo.currentData()
+            card.combo.blockSignals(True)
+            try:
+                card._preencher_formatos()
+                self._restaurar_formato(card, formato)
+                card._atualizar_origem_formato()
+            finally:
+                card.combo.blockSignals(False)
             card.btn_verificar.setEnabled(False)
             card.btn_verificar.setText("verificando…")
         except RuntimeError:
@@ -877,6 +888,26 @@ class SearchPage(QWidget):
     def _chave_resultado(resultado: TrackResult) -> tuple[str, str]:
         return str(resultado.fonte), str(resultado.uid)
 
+    @staticmethod
+    def _restaurar_formato(card: ResultCard, formato) -> None:
+        """Conserva a escolha explícita mesmo que uma nova consulta não a confirme."""
+        if formato is None or getattr(formato, 'format_id', '') in ('', 'bestaudio'):
+            return
+        for i in range(card.combo.count()):
+            item = card.combo.itemData(i)
+            if item and item.format_id == formato.format_id:
+                card.combo.setCurrentIndex(i)
+                card._atualizar_origem_formato()
+                return
+        texto = f"{formato.descricao_curta()} · id {formato.format_id} · não confirmado nesta consulta"
+        card.combo.addItem(texto, formato)
+        indice = card.combo.count() - 1
+        card.combo.setItemData(indice, "Escolha anterior: a última consulta não confirmou este formato. "
+                               "Se ele estiver indisponível, o download apresentará erro.", Qt.ToolTipRole)
+        card.combo.setEnabled(True)
+        card.combo.setCurrentIndex(indice)
+        card._atualizar_origem_formato()
+
     def _criar_card(self, resultado: TrackResult) -> ResultCard:
         chave = self._chave_resultado(resultado)
         pedido = self._marcados.get(chave)
@@ -888,13 +919,11 @@ class SearchPage(QWidget):
         card.combo.currentIndexChanged.connect(lambda _idx, c=card: self._formato_mudou(c))
         card.prever.connect(self._abrir_previa)
         if pedido:
-            formato = pedido.get('formato')
-            if formato:
-                for i in range(card.combo.count()):
-                    item = card.combo.itemData(i)
-                    if item and item.format_id == formato.format_id:
-                        card.combo.setCurrentIndex(i)
-                        break
+            card.combo.blockSignals(True)
+            try:
+                self._restaurar_formato(card, pedido.get('formato'))
+            finally:
+                card.combo.blockSignals(False)
             card.check.blockSignals(True)
             card.check.setChecked(True)
             card.check.blockSignals(False)
@@ -926,14 +955,11 @@ class SearchPage(QWidget):
             for outro in self.cards:
                 if outro is card or self._chave_resultado(outro.resultado) != chave:
                     continue
-                for i in range(outro.combo.count()):
-                    item = outro.combo.itemData(i)
-                    if item and item.format_id == formato.format_id:
-                        outro.combo.blockSignals(True)
-                        outro.combo.setCurrentIndex(i)
-                        outro.combo.blockSignals(False)
-                        outro._atualizar_origem_formato()
-                        break
+                outro.combo.blockSignals(True)
+                try:
+                    self._restaurar_formato(outro, formato)
+                finally:
+                    outro.combo.blockSignals(False)
             self._gravar_marcacoes()
 
     def _limpar_marcados(self) -> None:
@@ -995,14 +1021,11 @@ class SearchPage(QWidget):
                 card.check.setChecked(True)
                 card.check.blockSignals(False)
                 if fmt:
-                    for i in range(card.combo.count()):
-                        item = card.combo.itemData(i)
-                        if item and item.format_id == fmt.format_id:
-                            card.combo.blockSignals(True)
-                            card.combo.setCurrentIndex(i)
-                            card.combo.blockSignals(False)
-                            card._atualizar_origem_formato()
-                            break
+                    card.combo.blockSignals(True)
+                    try:
+                        self._restaurar_formato(card, fmt)
+                    finally:
+                        card.combo.blockSignals(False)
         self._atualizar_lote()
         self._gravar_marcacoes()
         return len(pedidos)

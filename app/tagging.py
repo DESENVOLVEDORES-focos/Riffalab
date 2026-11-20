@@ -14,7 +14,8 @@ def _mime(caminho: Path) -> str:
     return MIME_POR_EXT.get(caminho.suffix.lower(), "image/jpeg")
 
 
-def gravar(caminho: str | Path, meta: TrackMeta, id3v1: bool = True) -> dict:
+def gravar(caminho: str | Path, meta: TrackMeta, id3v1: bool = True,
+           apagar_campos=None) -> dict:
     """Grava título/artista/álbum/ano/faixa/gênero + capa (capa frontal).
 
     Usa ID3v2.3 (máxima compatibilidade: Windows Explorer, carros, players
@@ -33,6 +34,10 @@ def gravar(caminho: str | Path, meta: TrackMeta, id3v1: bool = True) -> dict:
     except ID3NoHeaderError:
         tags = ID3()
 
+    # Campos vazios preservam tags originais, exceto se o usuário pediu
+    # explicitamente para limpar um campo no editor.
+    if 'album' in (apagar_campos or ()):
+        tags.delall('TALB')
     if meta.titulo:
         tags.add(TIT2(encoding=3, text=meta.titulo))
     if meta.artista:

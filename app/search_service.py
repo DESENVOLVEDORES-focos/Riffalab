@@ -150,3 +150,35 @@ def pesquisar(consulta: str, config: Config, limite: int = 20,
         "segundos": round(time.time() - inicio, 1),
         "consulta": consulta,
     }
+
+
+def pesquisar_varias(consultas: List[str], config: Config, limite: int = 20,
+                     fontes_ids: Optional[List[str]] = None,
+                     progresso: Progresso = None,
+                     ordenar_por: str = "relevancia") -> List[Dict[str, object]]:
+    """Pesquisa cada termo separadamente, com concorrência limitada e ordem estável.
+
+    Falhas em um termo não interrompem os demais. Entradas vazias são ignoradas;
+    termos repetidos são mantidos, pois correspondem aos campos do usuário.
+    """
+    termos = [str(c).strip() for c in consultas if str(c).strip()]
+    if not termos:
+        return []
+    respostas: List[Optional[Dict[str, object]]] = [None] * len(termos)
+    with ThreadPoolExecutor(max_workers=min(3, len(termos))) as pool:
+        futuros = {pool.submit(pesquisar, termo, config, limite, fontes_ids,
+                               ordenar_por=ordenar_por, enriquecer_automatico=False): i
+                   for i, termo in enumerate(termos)}
+        feitos = 0
+        for futuro in as_completed(futuros):
+            i = futuros[futuro]
+            try:
+                respostas[i] = futuro.result()
+            except Exception as exc:  # um termo com erro não apaga os outros
+                respostas[i] = {"consulta": termos[i], "resultados": [], "filtrados": [],
+                                "fontes": [], "segundos": 0,
+                                "erros": {"pesquisa": f"{type(exc).__name__}: {exc}"}}
+            feitos += 1
+            _emitir(progresso, int(feitos * 100 / len(termos)),
+                    f"Pesquisas concluídas: {feitos}/{len(termos)}")
+    return [r for r in respostas if r is not None]

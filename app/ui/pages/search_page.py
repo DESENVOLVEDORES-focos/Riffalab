@@ -12,7 +12,7 @@ from ... import arquivos_baixados
 from ...config import Config
 from ...db import Banco
 from ...models import TrackResult
-from ...search_service import pesquisar
+from ...search_service import pesquisar, pesquisar_varias
 from ...sources import todas_as_fontes
 from ...workers import EXECUTOR_GLOBAL
 from .. import dialogos
@@ -54,6 +54,8 @@ class SearchPage(QWidget):
         self.filtrados: List[TrackResult] = []
         self._cards_filtrados: List[ResultCard] = []
         self._mostrando_filtrados = False
+        self._grupos_busca: list[dict] = []
+        self.campos_extras: list[tuple[QWidget, QLineEdit]] = []
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(26, 22, 26, 16)
@@ -98,6 +100,34 @@ class SearchPage(QWidget):
         self.qtd.valueChanged.connect(self._quantidade_mudou)
         linha.addWidget(self.qtd)
         raiz.addLayout(linha)
+
+        self.chk_varias = QCheckBox("Pesquisar várias músicas ou artistas de uma vez")
+        self.chk_varias.setToolTip("Use o primeiro campo acima e adicione quantos campos precisar.")
+        raiz.addWidget(self.chk_varias)
+        self.painel_varias = QWidget()
+        painel_layout = QVBoxLayout(self.painel_varias)
+        painel_layout.setContentsMargins(0, 0, 0, 0)
+        painel_layout.setSpacing(5)
+        dica_varias = QLabel("Cada campo gera uma seção separada nos resultados. Campos vazios são ignorados.")
+        dica_varias.setWordWrap(True)
+        painel_layout.addWidget(dica_varias)
+        area_campos = QScrollArea()
+        area_campos.setWidgetResizable(True)
+        area_campos.setMaximumHeight(150)
+        area_campos.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        campos_widget = QWidget()
+        self.lista_campos = QVBoxLayout(campos_widget)
+        self.lista_campos.setContentsMargins(0, 0, 0, 0)
+        self.lista_campos.setSpacing(5)
+        area_campos.setWidget(campos_widget)
+        painel_layout.addWidget(area_campos)
+        self.btn_mais_campo = QPushButton("+ Adicionar pesquisa")
+        self.btn_mais_campo.setObjectName("fantasma")
+        self.btn_mais_campo.clicked.connect(self._adicionar_campo)
+        painel_layout.addWidget(self.btn_mais_campo, alignment=Qt.AlignLeft)
+        raiz.addWidget(self.painel_varias)
+        self.painel_varias.hide()
+        self.chk_varias.toggled.connect(self._modo_varias_mudou)
 
         # ------------------------------------------------- aviso do yt-dlp
         self.aviso_ytdlp = QFrame()
@@ -254,16 +284,48 @@ class SearchPage(QWidget):
                 f"Os formatos de cada resultado são verificados automaticamente.</span></div>")
 
     # ------------------------------------------------------------------ busca
+    def _modo_varias_mudou(self, ativo: bool) -> None:
+        self.painel_varias.setVisible(ativo)
+        if ativo and not self.campos_extras:
+            self._adicionar_campo()
+
+    def _adicionar_campo(self) -> None:
+        linha = QWidget()
+        layout = QHBoxLayout(linha)
+        layout.setContentsMargins(0, 0, 0, 0)
+        campo = QLineEdit()
+        campo.setPlaceholderText("Outra música, artista, banda ou link…")
+        campo.returnPressed.connect(self.pesquisar)
+        remover = QPushButton("Remover")
+        remover.setObjectName("fantasma")
+        remover.clicked.connect(lambda: self._remover_campo(linha))
+        layout.addWidget(campo, 1)
+        layout.addWidget(remover)
+        self.lista_campos.addWidget(linha)
+        self.campos_extras.append((linha, campo))
+        campo.setFocus()
+
+    def _remover_campo(self, linha: QWidget) -> None:
+        self.campos_extras = [(w, c) for w, c in self.campos_extras if w is not linha]
+        self.lista_campos.removeWidget(linha)
+        linha.setParent(None)
+        linha.deleteLater()
+
     def pesquisar(self) -> None:
-        consulta = self.campo.text().strip()
-        if not consulta or self._buscando:
+        consultas = [self.campo.text().strip()]
+        if self.chk_varias.isChecked():
+            consultas.extend(campo.text().strip() for _, campo in self.campos_extras)
+        consultas = [consulta for consulta in consultas if consulta]
+        if not consultas or self._buscando:
             return
+        consulta = consultas[0]
         self._buscando = True
         self.btn_buscar.setEnabled(False)
         self.btn_buscar.setText("pesquisando…")
         self.barra.setVisible(True)
         self.barra.setValue(2)
-        self.status.setText(f"Pesquisando “{consulta}”…")
+        self.status.setText(f"Pesquisando {len(consultas)} termos…" if len(consultas) > 1
+                            else f"Pesquisando “{consulta}”…")
         self._limpar()
 
         fontes = [fid for fid, c in self.checks.items() if c.isChecked()]
@@ -279,10 +341,13 @@ class SearchPage(QWidget):
             return
         limite = int(self.config.get("limite_resultados") or 20)
 
+        multiplas = len(consultas) > 1
+        kwargs = {} if multiplas else {"enriquecer_automatico": False}
         EXECUTOR_GLOBAL.rodar(
-            pesquisar, consulta, self.config, limite, fontes,
-            ordenar_por=self.ordem.currentData(), enriquecer_automatico=False, com_progresso=True,
-            ao_resultado=self._mostrar,
+            pesquisar_varias if multiplas else pesquisar,
+            consultas if multiplas else consulta, self.config, limite, fontes,
+            ordenar_por=self.ordem.currentData(), com_progresso=True, **kwargs,
+            ao_resultado=self._mostrar_varias if multiplas else self._mostrar,
             ao_erro=self._erro,
             ao_progresso=lambda pct, msg: (self.barra.setValue(max(2, int(pct * 0.9))),
                                            self.status.setText(msg)),
@@ -347,6 +412,69 @@ class SearchPage(QWidget):
         self._avisar_filtrados()
         self._agendar_verificacoes()
         self._conferir_baixados(resultados + self.filtrados)
+
+    def _mostrar_varias(self, respostas: list[dict]) -> None:
+        """Apresenta uma seção por termo, inclusive quando um deles falha."""
+        self._buscando = False
+        self.btn_buscar.setEnabled(True)
+        self.btn_buscar.setText("Pesquisar")
+        self.barra.setVisible(False)
+        self._limpar()
+        todos = []
+        total_filtrados = 0
+        for dados in respostas:
+            resultados = list(dados.get("resultados") or [])
+            filtrados = list(dados.get("filtrados") or [])
+            consulta = str(dados.get("consulta") or "")
+            erros = dados.get("erros") or {}
+            grupo_widget = QFrame()
+            grupo_widget.setObjectName("cartao")
+            layout = QVBoxLayout(grupo_widget)
+            layout.setContentsMargins(12, 12, 12, 12)
+            layout.setSpacing(8)
+            titulo = QLabel(f"Pesquisa: {consulta}  ·  {len(resultados)} resultado(s)")
+            titulo.setTextFormat(Qt.PlainText)
+            titulo.setWordWrap(True)
+            titulo.setStyleSheet("font-size: 15px; font-weight: 700;")
+            layout.addWidget(titulo)
+            if erros:
+                aviso = QLabel("Erro em fonte(s): " + "; ".join(f"{k}: {v}" for k, v in erros.items()))
+                aviso.setTextFormat(Qt.PlainText)
+                aviso.setWordWrap(True)
+                layout.addWidget(aviso)
+            if not resultados:
+                layout.addWidget(QLabel("Nenhum resultado visível para esta pesquisa."))
+            if filtrados:
+                info = QLabel(f"{len(filtrados)} resultado(s) filtrado(s); use o botão acima para mostrar.")
+                info.setWordWrap(True)
+                layout.addWidget(info)
+            grupo = {"consulta": consulta, "widget": grupo_widget, "layout": layout,
+                     "cards": [], "filtrados": filtrados, "cards_filtrados": []}
+            self._grupos_busca.append(grupo)
+            self.lista.insertWidget(self.lista.count() - 1, grupo_widget)
+            for r in resultados:
+                card = self._criar_card(r)
+                self.cards.append(card)
+                grupo["cards"].append(card)
+                layout.addWidget(card)
+            self.banco.registrar_historico("pesquisa", consulta,
+                ", ".join(dados.get("fontes") or []),
+                f"{len(resultados)} resultado(s)", len(resultados))
+            self.filtrados.extend(filtrados)
+            total_filtrados += len(filtrados)
+            todos.extend(resultados + filtrados)
+        self.vazio.setVisible(not respostas)
+        self.btn_filtrados.setText(f"Mostrar resultados filtrados ({total_filtrados})")
+        self.btn_filtrados.setEnabled(bool(total_filtrados))
+        self.btn_melhores.setEnabled(bool(self.cards))
+        self._status_base = f"{len(respostas)} pesquisa(s) · {len(self.cards)} resultado(s)"
+        self.status.setText(self._status_base)
+        self._escolha_manual = False
+        self._atualizar_lote()
+        self._avisar_filtrados()
+        self._agendar_verificacoes()
+        if todos:
+            self._conferir_baixados(todos)
 
     def _conferir_baixados(self, resultados: List[TrackResult]) -> None:
         # Cópia evita que o detalhamento de formatos altere os dados da busca
@@ -422,6 +550,8 @@ class SearchPage(QWidget):
                 card.setParent(None)
                 card.deleteLater()
             self._cards_filtrados = []
+            for grupo in self._grupos_busca:
+                grupo["cards_filtrados"] = []
             self._mostrando_filtrados = False
             self.btn_filtrados.setText(f"Mostrar resultados filtrados ({len(self.filtrados)})")
             self.btn_melhores.setEnabled(bool(self.cards))
@@ -429,12 +559,19 @@ class SearchPage(QWidget):
             self._atualizar_lote()
             return
         self.vazio.setVisible(False)
-        for r in self.filtrados:
-            r.filtrado = True
-            card = self._criar_card(r)
-            self.cards.append(card)
-            self._cards_filtrados.append(card)
-            self.lista.insertWidget(self.lista.count() - 1, card)
+        grupos = self._grupos_busca or [{"filtrados": self.filtrados, "layout": self.lista}]
+        for grupo in grupos:
+            grupo["cards_filtrados"] = []
+            for r in grupo["filtrados"]:
+                r.filtrado = True
+                card = self._criar_card(r)
+                self.cards.append(card)
+                self._cards_filtrados.append(card)
+                grupo["cards_filtrados"].append(card)
+                if self._grupos_busca:
+                    grupo["layout"].addWidget(card)
+                else:
+                    self.lista.insertWidget(self.lista.count() - 1, card)
         self._mostrando_filtrados = True
         self.btn_melhores.setEnabled(bool(self.cards))
         self.btn_filtrados.setText(f"Ocultar resultados filtrados ({len(self.filtrados)})")
@@ -484,6 +621,10 @@ class SearchPage(QWidget):
             card.setParent(None)
             card.deleteLater()
         self.cards.clear()
+        for grupo in self._grupos_busca:
+            grupo["widget"].setParent(None)
+            grupo["widget"].deleteLater()
+        self._grupos_busca.clear()
         self.vazio.setVisible(True)
         self._atualizar_lote()
 
@@ -530,10 +671,22 @@ class SearchPage(QWidget):
             filtrados = [c for c in self.cards if c in self._cards_filtrados]
             chave = lambda c: (pontuar(c.resultado.melhor) if c.resultado.melhor else -1,
                                c.resultado.nota_musica)
-            self.cards[:] = sorted(normais, key=chave, reverse=True) + sorted(filtrados, key=chave, reverse=True)
-            for card in self.cards:
-                self.lista.removeWidget(card)
-                self.lista.insertWidget(self.lista.count() - 1, card)
+            if self._grupos_busca:
+                self.cards[:] = []
+                for grupo in self._grupos_busca:
+                    normais_grupo = sorted(grupo["cards"], key=chave, reverse=True)
+                    filtrados_grupo = sorted(grupo["cards_filtrados"], key=chave, reverse=True)
+                    grupo["cards"] = normais_grupo
+                    grupo["cards_filtrados"] = filtrados_grupo
+                    for card in normais_grupo + filtrados_grupo:
+                        grupo["layout"].removeWidget(card)
+                        grupo["layout"].addWidget(card)
+                        self.cards.append(card)
+            else:
+                self.cards[:] = sorted(normais, key=chave, reverse=True) + sorted(filtrados, key=chave, reverse=True)
+                for card in self.cards:
+                    self.lista.removeWidget(card)
+                    self.lista.insertWidget(self.lista.count() - 1, card)
         verificados = sum(1 for c in self.cards if c.resultado.formatos)
         partes = [base]
         if verificados:

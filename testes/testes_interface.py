@@ -253,6 +253,136 @@ class Interface(unittest.TestCase):
         self.assertFalse(b.check.isChecked())
         self.assertFalse(busca._marcados)
 
+    def test_pesquisa_multipla_campos_grupos_filtro_e_selecao(self):
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        busca.chk_varias.setChecked(True)
+        busca.campo.setText("Guns")
+        busca.campos_extras[0][1].setText("Pink Floyd")
+        busca.btn_mais_campo.click()
+        busca.campos_extras[-1][1].setText("Led Zeppelin")
+        busca.btn_mais_campo.click()  # campo vazio não deve gerar pesquisa
+        fmt = [AudioFormat(codec='opus', bitrate_kbps=128, format_id='251')]
+        a = TrackResult('a', 'ytdlp', 'Primeira', 'Guns', formatos=fmt)
+        b = TrackResult('b', 'ytdlp', 'Outra', 'Led', formatos=fmt)
+        filtrada = TrackResult('f', 'ytdlp', 'Ao vivo', 'Guns', formatos=fmt)
+        def dados(consulta, resultados, filtrados=(), erros=None):
+            return {'consulta':consulta, 'resultados':list(resultados), 'filtrados':list(filtrados),
+                    'fontes':['YouTube'], 'segundos':1, 'erros':erros or {}}
+        retornos = [dados('Guns', [a], [filtrada]),
+                    dados('Pink Floyd', [], erros={'yt': 'falhou'}), dados('Led Zeppelin', [b])]
+        chamadas = []
+        def rodar(fn, *args, **kwargs):
+            chamadas.append((fn, args, kwargs))
+            if fn is search_page.pesquisar_varias:
+                kwargs['ao_resultado'](retornos)
+        with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
+             patch.object(search_page.EXECUTOR_GLOBAL, 'rodar', side_effect=rodar):
+            busca.btn_buscar.click()
+            self.assertEqual(chamadas[0][1][0], ['Guns', 'Pink Floyd', 'Led Zeppelin'])
+            self.assertEqual([g['consulta'] for g in busca._grupos_busca], ['Guns', 'Pink Floyd', 'Led Zeppelin'])
+            self.assertEqual(busca._grupos_busca[0]['cards'][0].resultado.uid, 'a')
+            self.assertEqual(busca._grupos_busca[2]['cards'][0].resultado.uid, 'b')
+            self.assertIn('falhou', busca._grupos_busca[1]['layout'].itemAt(1).widget().text())
+            busca._grupos_busca[0]['cards'][0].check.setChecked(True)
+            busca._grupos_busca[2]['cards'][0].check.setChecked(True)
+            self.assertEqual(len(busca._marcados), 2)
+            busca._alternar_filtrados()
+            self.assertEqual(busca._grupos_busca[0]['cards_filtrados'][0].resultado.uid, 'f')
+            busca._grupos_busca[0]['cards_filtrados'][0].check.setChecked(True)
+            busca._alternar_filtrados()
+            self.assertEqual(len(busca._marcados), 3)
+            busca.ordem.setCurrentIndex(1)
+            busca._fila_verif.clear()
+            busca._verif_ativas = 0
+            busca._status_verificacao()
+            self.assertIs(busca._grupos_busca[0]['cards'][0].parentWidget(), busca._grupos_busca[0]['widget'])
+            self.assertIs(busca._grupos_busca[2]['cards'][0].parentWidget(), busca._grupos_busca[2]['widget'])
+            busca.btn_lote.click()
+            self.assertEqual(len(self.janela.pagina_downloads.selecoes), 3)
+            self.assertFalse(self.janela.fila.jobs)
+        busca._limpar()
+        self.assertEqual(busca._grupos_busca, [])
+        self.assertEqual(busca.cards, [])
+
+    def test_pesquisa_multipla_videos_repetidos_sincronizados(self):
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        formatos = [AudioFormat(codec='opus', bitrate_kbps=150, format_id='251'),
+                    AudioFormat(codec='aac', bitrate_kbps=120, format_id='140')]
+        a = TrackResult('id', 'ytdlp', 'Música', 'Artista', formatos=formatos)
+        b = TrackResult('id', 'ytdlp', 'Música', 'Artista', formatos=formatos)
+        def dados(consulta, r):
+            return {'consulta': consulta, 'resultados': [r], 'filtrados': [],
+                    'fontes': [], 'segundos': 1, 'erros': {}}
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
+            busca._mostrar_varias([dados('Música', a), dados('Artista', b)])
+            c1, c2 = (g['cards'][0] for g in busca._grupos_busca)
+            c1.check.setChecked(True)
+            self.assertTrue(c2.check.isChecked())
+            c2.combo.setCurrentIndex(1)
+            self.assertEqual(c1.combo.currentData().format_id, c2.combo.currentData().format_id)
+            self.assertEqual(len(busca._marcados), 1)
+            c1.check.setChecked(False)
+            self.assertFalse(c2.check.isChecked())
+            self.assertFalse(busca._marcados)
+
+    def test_pesquisa_multipla_assincrona_na_interface(self):
+        import time
+        from app import search_service
+        from app.models import AudioFormat, TrackResult
+        busca = self.janela.pagina_busca
+        busca.chk_varias.setChecked(True)
+        busca.campo.setText('Guns')
+        busca.campos_extras[0][1].setText('Pink Floyd')
+        def pesquisar_fake(termo, *args, **kwargs):
+            if termo == 'Guns':
+                time.sleep(0.05)
+            r = TrackResult(termo, 'ytdlp', termo, 'Artista',
+                            formatos=[AudioFormat(codec='opus', format_id='251')])
+            return {'consulta': termo, 'resultados': [r], 'filtrados': [],
+                    'fontes': ['Fonte'], 'segundos': 0, 'erros': {}}
+        with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
+             patch.object(search_service, 'pesquisar', side_effect=pesquisar_fake), \
+             patch.object(busca, '_agendar_verificacoes'), \
+             patch.object(busca, '_conferir_baixados'):
+            busca.pesquisar()
+            limite = time.monotonic() + 5
+            while busca._buscando and time.monotonic() < limite:
+                self.app.processEvents()
+                time.sleep(0.01)
+            self.assertFalse(busca._buscando)
+            self.assertEqual([g['consulta'] for g in busca._grupos_busca], ['Guns', 'Pink Floyd'])
+            self.assertEqual([g['cards'][0].resultado.titulo for g in busca._grupos_busca], ['Guns', 'Pink Floyd'])
+            self.assertFalse(busca.barra.isVisible())
+
+    def test_campos_multiplos_remocao_modo_simples_e_primeiro_vazio(self):
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        busca.chk_varias.setChecked(True)
+        busca.campos_extras[0][1].setText('Somente este')
+        busca.btn_mais_campo.click()
+        w = busca.campos_extras[-1][0]
+        busca._remover_campo(w)
+        self.assertEqual(len(busca.campos_extras), 1)
+        chamadas = []
+        with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
+             patch.object(search_page.EXECUTOR_GLOBAL, 'rodar', side_effect=lambda fn, *a, **k: chamadas.append((fn, a, k))):
+            busca.pesquisar()
+        self.assertIs(chamadas[0][0], search_page.pesquisar)
+        self.assertEqual(chamadas[0][1][0], 'Somente este')
+        busca._erro('teste')
+        busca.chk_varias.setChecked(False)
+        busca.campo.setText('Busca simples')
+        chamadas.clear()
+        with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
+             patch.object(search_page.EXECUTOR_GLOBAL, 'rodar', side_effect=lambda fn, *a, **k: chamadas.append((fn, a, k))):
+            busca.pesquisar()
+        self.assertIs(chamadas[0][0], search_page.pesquisar)
+        self.assertEqual(chamadas[0][1][0], 'Busca simples')
+
     def test_resultado_exibe_quatro_metodos_e_origem_do_formato(self):
         from app.models import AudioFormat, TrackResult
         from app.ui.pages import search_page

@@ -1,0 +1,13 @@
+# RiffLab — dependências Python
+# instale com:  pip install -r requirements.txt
+
+PySide6>=6.6          # interface (Qt 6). O pacote completo já traz o
+                      # QtWebEngine usado na pré-visualização embutida.
+                      # Se você instalou só PySide6-Essentials:
+                      #   pip install PySide6-Addons
+mutagen>=1.47         # tags ID3 + capa (APIC) + leitura de metadados
+
+# FFmpeg e yt-dlp de download são executáveis (.exe). A biblioteca opcional
+# yt-dlp[default] é instalada pelo INICIAR.bat para o quarto método de consulta.
+# Coloque ffmpeg.exe (obrigatório) e, se quiser, ffprobe.exe / yt-dlp.exe
+# na pasta "ferramentas" — veja LEIA-ME.md

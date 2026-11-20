@@ -1,0 +1,31 @@
+# Ambiente Python e arquivos gerados
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Pacotes gerados para entrega
+/entregas/
+
+# Dados locais e arquivos temporários do aplicativo
+/config.json
+/rifflab.db*
+/rifflab.log*
+/teste_ytdlp.txt
+/detalhe_teste.json
+/detalhe_teste.txt
+/downloads/
+/temp/
+/capas/cache/
+/ferramentas/*.exe
+
+# Credenciais e autenticação
+/credenciais/
+/cookies.txt
+/api.txt
+/api_key.txt
+/apikey.txt
+/discogs.txt
+.env
+.env.*

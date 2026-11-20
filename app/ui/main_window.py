@@ -129,7 +129,14 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(350, self._avisar_pasta_saida_inicial)
 
     def _avisar_pasta_saida_inicial(self) -> None:
-        if self.pagina_config.aviso_pasta_saida.text():
+        # A janela não deve depender de um widget interno das configurações:
+        # versões anteriores da página não tinham o rótulo aviso_pasta_saida.
+        # Consultar o caminho não cria pastas nem muda a configuração.
+        try:
+            disponivel = self.config.pasta_saida.is_dir()
+        except (OSError, ValueError):
+            disponivel = False
+        if not disponivel:
             texto = ("Pasta de saída indisponível. Conecte a unidade ou escolha outra "
                      "em Configurações → Áudio e destino antes de baixar.")
             self.statusBar().showMessage(texto)

@@ -888,6 +888,35 @@ class Interface(unittest.TestCase):
         self.assertIs(linha.preparacao, anterior)
         self.assertFalse(d._preparando)
 
+    def test_aviso_inicial_sem_widget_de_versao_anterior_e_timer_real(self):
+        import sys
+        from PySide6.QtTest import QTest
+        from app.ui.main_window import MainWindow
+        # Reproduz uma página antiga sem o atributo citado no traceback.
+        self.cfg.dados['pasta_saida'] = str(self.base / 'pasta-ausente')
+        erros = []
+        with patch('app.ui.pages.settings_page.SettingsPage._verificar_ferramentas'), \
+             patch('app.ui.main_window.MainWindow._atualizar_rodape_completo'), \
+             patch.object(sys, 'excepthook', side_effect=lambda *args: erros.append(args)):
+            janela = MainWindow(self.cfg, self.banco)
+            try:
+                del janela.pagina_config.aviso_pasta_saida
+                janela.show()
+                QTest.qWait(500)  # dispara o QTimer de 350 ms de verdade
+                self.assertEqual(erros, [])
+                self.assertIn('Pasta de saída indisponível', janela.statusBar().currentMessage())
+                self.assertFalse((self.base / 'pasta-ausente').exists())
+                self.assertEqual(self.cfg.get('pasta_saida'), str(self.base / 'pasta-ausente'))
+            finally:
+                janela.close()
+                janela.deleteLater()
+
+    def test_aviso_inicial_com_pasta_valida_nao_mostra_erro(self):
+        self.cfg.dados['pasta_saida'] = str(self.base)
+        with patch.object(self.janela.toast, 'mostrar') as toast:
+            self.janela._avisar_pasta_saida_inicial()
+        toast.assert_not_called()
+
     def test_janela_abre_com_pasta_invalida_e_usuario_escolhe_outro_destino(self):
         from app.ui.main_window import MainWindow
         from app.ui.pages import settings_page

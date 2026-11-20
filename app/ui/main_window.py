@@ -110,7 +110,7 @@ class MainWindow(QMainWindow):
         self.toast = Toast(central)
 
         # --------------------------------------------------------- ligações
-        self.pagina_busca.processar_pedido.connect(self.enfileirar)
+        self.pagina_busca.transferir_pedido = self.enfileirar
         self.pagina_busca.abrir_downloads.connect(lambda: self.ir_para('downloads'))
         self.pagina_busca.mensagem.connect(self.toast.mostrar)
         self.pagina_downloads.mensagem.connect(self.toast.mostrar)
@@ -145,16 +145,20 @@ class MainWindow(QMainWindow):
             self.botoes[chave].setChecked(True)
 
     # ------------------------------------------------------------------ ações
-    def enfileirar(self, dados: dict) -> None:
+    def enfileirar(self, dados: dict) -> bool:
         resultado = dados.get("resultado")
         if resultado is None:
-            return
+            return False
+        ja_existe = any(x.pedido['resultado'].fonte == resultado.fonte and
+                        x.pedido['resultado'].uid == resultado.uid
+                        for x in self.pagina_downloads.selecoes)
         adicionada = self.pagina_downloads.adicionar_selecao(dados)
         if adicionada and not dados.get("lote"):
             mensagem = f"Adicionada a Downloads: {resultado.artista} — {resultado.titulo}"
             self.statusBar().showMessage(mensagem)
             self.toast.mostrar(mensagem)
         self._sincronizar_contador()
+        return adicionada or ja_existe
 
     def _ao_processar(self, msg: str) -> None:
         self.toast.mostrar(msg)
@@ -211,11 +215,16 @@ class MainWindow(QMainWindow):
             resposta = QMessageBox.warning(
                 self, 'Processamento em andamento',
                 'Há músicas na fila ou capas sendo pesquisadas. Fechar agora pode interromper '
-                'o processamento e perder a seleção. Deseja fechar mesmo assim?',
+                'o processamento. Downloads em andamento ou aguardando não serão retomados automaticamente. Deseja fechar mesmo assim?',
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if resposta != QMessageBox.Yes:
                 evento.ignore()
                 return
+        # Ignora respostas de pesquisas que acabem depois da janela fechar.
+        self.pagina_busca._geracao_busca += 1
+        self.pagina_busca._buscando = False
+        self.pagina_downloads._a_preparar.clear()
+        self.pagina_downloads._preparando = False
         try:
             self.config.salvar()
             self.banco.fechar()

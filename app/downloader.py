@@ -43,6 +43,7 @@ class GerenciadorFila(QObject):
         self.banco = banco
         self.fila: Deque[Dict[str, Any]] = deque()
         self.jobs: Dict[int, Dict[str, Any]] = {}
+        self._itens: Dict[int, Dict[str, Any]] = {}
         self._ativos = 0
         self._lock = threading.Lock()
 
@@ -75,12 +76,36 @@ class GerenciadorFila(QObject):
         }
         with self._lock:
             self.jobs[job_db] = job
-            self.fila.append({"job": job, "resultado": resultado, "formato": formato,
-                              "meta": meta_extra or {}, "preparacao": preparacao})
+            item = {"job": job, "resultado": resultado, "formato": formato,
+                    "meta": meta_extra or {}, "preparacao": preparacao}
+            self._itens[job_db] = item
+            self.fila.append(item)
         self.job_adicionado.emit(dict(job))
         self.fila_alterada.emit()
         self._proximo()
         return job_db
+
+    def tentar_novamente(self, job_id: int) -> int:
+        """Cria nova tentativa sem repetir seleção; nunca retoma um job ativo."""
+        item = self._itens.get(job_id)
+        job = self.jobs.get(job_id)
+        if not item or not job or job.get('status') != 'erro' or job.get('nova_tentativa'):
+            raise ValueError('Esta tentativa não está disponível para repetição.')
+        preparacao = item.get('preparacao')
+        if preparacao and preparacao['capa'].ok:
+            from pathlib import Path
+            if not Path(preparacao['capa'].caminho).is_file():
+                raise ValueError('A capa escolhida não está mais disponível; selecione a música e escolha a capa novamente.')
+        self.config.garantir_pasta_saida()
+        # Sinaliza antes de adicionar, inclusive se uma tarefa simulada terminar imediatamente.
+        job['nova_tentativa'] = True
+        try:
+            novo_id = self.adicionar(item['resultado'], item.get('formato'), item.get('meta'), preparacao)
+        except Exception:
+            job.pop('nova_tentativa', None)
+            raise
+        self.job_atualizado.emit(dict(job))
+        return novo_id
 
     def adicionar_varios(self, itens: List[TrackResult]) -> int:
         n = 0
@@ -111,6 +136,7 @@ class GerenciadorFila(QObject):
             for jid in [j for j, d in self.jobs.items()
                         if d["status"] in ("finalizado", "erro", "cancelado")]:
                 self.jobs.pop(jid, None)
+                self._itens.pop(jid, None)
         self.fila_alterada.emit()
 
     @property

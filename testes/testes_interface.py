@@ -383,6 +383,207 @@ class Interface(unittest.TestCase):
         self.assertIs(chamadas[0][0], search_page.pesquisar)
         self.assertEqual(chamadas[0][1][0], 'Busca simples')
 
+    def test_reabrir_janela_recupera_marcas_e_downloads(self):
+        from app.db import Banco
+        from app.models import AudioFormat, TrackResult
+        from app.ui.main_window import MainWindow
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        fmt = AudioFormat(codec='opus', format_id='251')
+        r1 = TrackResult('1', 'ytdlp', 'Uma', 'Artista', formatos=[fmt])
+        r2 = TrackResult('2', 'ytdlp', 'Outra', 'Artista', formatos=[fmt])
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
+            busca._mostrar({'resultados':[r1,r2], 'filtrados':[], 'consulta':'Artista',
+                            'fontes':[], 'segundos':1, 'erros':{}})
+            busca.cards[0].check.setChecked(True)
+            self.janela.enfileirar({'resultado':r2, 'formato':fmt})
+        busca._guardar_lista('Favoritas')
+        self.janela.close()
+        self.janela.deleteLater()
+        self.app.processEvents()
+        self.banco = Banco(self.base / 'banco.db')
+        with patch('app.ui.pages.settings_page.SettingsPage._verificar_ferramentas'), \
+             patch('app.ui.main_window.MainWindow._atualizar_rodape_completo'):
+            self.janela = MainWindow(self.cfg, self.banco)
+        self.janela.show()
+        self.app.processEvents()
+        self.assertEqual(len(self.janela.pagina_busca._marcados), 1)
+        self.assertEqual(self.banco.nomes_listas(), ['Favoritas'])
+        self.assertEqual(len(self.janela.pagina_downloads.selecoes), 1)
+        self.assertEqual(self.janela.pagina_downloads.selecoes[0].pedido['resultado'].uid, '2')
+        self.assertFalse(self.janela.fila.jobs)
+
+    def test_estado_corrompido_nao_e_sobrescrito_na_inicializacao(self):
+        from app.ui.pages.search_page import SearchPage
+        from app.ui.pages.downloads_page import DownloadsPage
+        self.banco.salvar_estado('marcacoes', [{'invalido': True}])
+        self.banco.salvar_estado('downloads_selecionados', [{'invalido': True}])
+        busca = SearchPage(self.cfg, self.banco, self.janela.carregador)
+        downloads = DownloadsPage(self.cfg, self.janela.fila)
+        self.assertTrue(busca._erro_estado_inicial)
+        self.assertTrue(downloads._erro_recuperar)
+        self.assertFalse(busca._gravar_marcacoes())
+        self.assertFalse(downloads._persistir_selecoes())
+        self.assertEqual(self.banco.ler_estado('marcacoes'), [{'invalido': True}])
+        self.assertEqual(self.banco.ler_estado('downloads_selecionados'), [{'invalido': True}])
+        busca.deleteLater()
+        downloads.deleteLater()
+
+    def test_marcas_listas_e_downloads_reabrem_sem_iniciar_download(self):
+        from app.models import AudioFormat, CoverResult, TrackMeta, TrackResult
+        from app.ui.pages.search_page import SearchPage
+        from app.ui.pages.downloads_page import DownloadsPage
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        fmt = AudioFormat(codec='opus', format_id='251')
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista', formatos=[fmt])
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
+            busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
+                            'fontes':[], 'segundos':1, 'erros':{}})
+            busca.cards[0].check.setChecked(True)
+        busca._guardar_lista('Carro')
+        outra = SearchPage(self.cfg, self.banco, self.janela.carregador)
+        self.assertEqual(len(outra._marcados), 1)
+        self.assertEqual(next(iter(outra._marcados.values()))['formato'].format_id, '251')
+        outra._limpar_marcados()
+        self.assertEqual(outra._carregar_lista('Carro'), 1)
+        self.assertEqual(len(outra._marcados), 1)
+        self.assertEqual(self.banco.nomes_listas(), ['Carro'])
+        d = self.janela.pagina_downloads
+        d.adicionar_selecao({'resultado': r, 'formato': fmt, 'edicao': {'titulo':'Corrigida', 'artista':'Artista', 'album':'Disco'}})
+        capa = self.base / 'capa.jpg'
+        capa.write_bytes(b'imagem simulada')
+        d.selecoes[0].definir_preparacao({'meta': TrackMeta(titulo='Corrigida', artista='Artista', album='Disco'),
+                                           'capa': CoverResult(caminho=str(capa)), 'ident': None})
+        d.selecoes[0].check.setChecked(False)
+        outra_downloads = DownloadsPage(self.cfg, self.janela.fila)
+        self.assertEqual(len(outra_downloads.selecoes), 1)
+        linha = outra_downloads.selecoes[0]
+        self.assertFalse(linha.check.isChecked())
+        self.assertEqual(linha.preparacao['meta'].titulo, 'Corrigida')
+        self.assertEqual(linha.preparacao['capa'].caminho, str(capa))
+        self.assertFalse(self.janela.fila.jobs)
+        capa.unlink()
+        terceira = DownloadsPage(self.cfg, self.janela.fila)
+        self.assertIsNone(terceira.selecoes[0].preparacao)
+        self.assertFalse(terceira.btn_baixar.isEnabled())
+        for w in (outra, outra_downloads, terceira):
+            w.deleteLater()
+
+    def test_falha_ao_salvar_download_nao_apaga_marcacao(self):
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista', formatos=[AudioFormat(format_id='251')])
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
+            busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
+                            'fontes':[], 'segundos':1, 'erros':{}})
+        busca.cards[0].check.setChecked(True)
+        original = self.banco.salvar_estado
+        def falha(chave, dados):
+            if chave == 'downloads_selecionados':
+                raise OSError('sem espaço')
+            return original(chave, dados)
+        with patch.object(self.banco, 'salvar_estado', side_effect=falha):
+            busca.btn_lote.click()
+        self.assertEqual(len(busca._marcados), 1)
+        self.assertFalse(self.janela.pagina_downloads.selecoes)
+        self.assertEqual(len(self.banco.ler_estado('marcacoes')), 1)
+
+    def test_botao_tentar_novamente_cria_nova_tentativa(self):
+        from app.models import AudioFormat, CoverResult, TrackMeta, TrackResult
+        fila = self.janela.fila
+        self.cfg.dados['pasta_saida'] = str(self.base / 'saida')
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista')
+        formato = AudioFormat(codec='opus', format_id='251')
+        prep = {'meta':TrackMeta(titulo='Música', artista='Artista'), 'capa':CoverResult(), 'ident':None}
+        iniciados = []
+        with patch.object(fila, '_iniciar', side_effect=lambda item: iniciados.append(item)):
+            jid = fila.adicionar(r, formato, preparacao=prep)
+            fila._concluir(fila.jobs[jid], {'ok':False, 'erro':'falha simulada'})
+            self.janela.ir_para('downloads')
+            linha = self.janela.pagina_downloads.linhas[jid]
+            self.assertFalse(linha.btn_tentar.isHidden())
+            linha.btn_tentar.click()
+            self.assertTrue(linha.btn_tentar.isHidden())
+            self.assertEqual(len(iniciados), 2)
+            self.assertIs(iniciados[1]['preparacao'], prep)
+            self.assertEqual(iniciados[1]['formato'].format_id, '251')
+            fila.jobs[iniciados[1]['job']['id']]['status'] = 'cancelado'
+            fila._ativos = 0
+
+    def test_editar_e_preparar_sem_capa_no_lote(self):
+        from app.models import CoverResult, TrackMeta, TrackResult
+        from app.ui.pages import downloads_page
+        d = self.janela.pagina_downloads
+        for i in range(2):
+            d.adicionar_selecao({'resultado':TrackResult(str(i),'ytdlp', f'Música {i}', 'Artista')})
+        dialogo = Mock()
+        dialogo.exec.return_value = QDialog.Accepted
+        dialogo.valores.return_value = {'titulo':'Título corrigido', 'artista':'Novo artista', 'album':'Álbum'}
+        with patch.object(downloads_page, 'DialogoEditarDados', return_value=dialogo):
+            d._editar_dados(d.selecoes[0])
+        self.assertEqual(d.selecoes[0].pedido['edicao']['titulo'], 'Título corrigido')
+        chamadas = []
+        def rodar(fn, *args, **kwargs):
+            chamadas.append(kwargs)
+            r = args[0]
+            ed = kwargs.get('edicao') or {}
+            kwargs['ao_resultado']({'meta': TrackMeta(titulo=ed.get('titulo', r.titulo),
+                artista=ed.get('artista', r.artista), album=ed.get('album', '')),
+                'capa': CoverResult(), 'ident': None})
+        with patch.object(downloads_page.QMessageBox, 'question', return_value=QMessageBox.Yes), \
+             patch.object(downloads_page.EXECUTOR_GLOBAL, 'rodar', side_effect=rodar), \
+             patch.object(downloads_page, 'DialogoCapas', side_effect=AssertionError('não deve abrir')):
+            d.btn_sem_capa.click()
+        self.assertEqual(len(chamadas), 2)
+        self.assertTrue(all(c['sem_capa'] for c in chamadas))
+        self.assertEqual(d.selecoes[0].preparacao['meta'].titulo, 'Título corrigido')
+        self.assertTrue(all(not l.preparacao['capa'].ok for l in d.selecoes))
+        self.assertTrue(d.btn_baixar.isEnabled())
+        self.assertFalse(self.janela.fila.jobs)
+
+    def test_pesquisa_multipla_exibe_primeiro_resultado_enquanto_outro_espera(self):
+        import threading, time
+        from app import search_service
+        from app.models import AudioFormat, TrackResult
+        busca = self.janela.pagina_busca
+        busca.chk_varias.setChecked(True)
+        busca.campo.setText('Lenta')
+        busca.campos_extras[0][1].setText('Rápida')
+        liberar = threading.Event()
+        def pesquisar_fake(termo, *args, **kwargs):
+            if termo == 'Lenta':
+                if not liberar.wait(4):
+                    raise RuntimeError('timeout de teste')
+            r = TrackResult(termo, 'ytdlp', termo, 'Artista',
+                formatos=[AudioFormat(codec='opus', format_id='251')], extra={'metodos_consulta':[{}]})
+            return {'consulta':termo, 'resultados':[r], 'filtrados':[], 'fontes':[], 'segundos':0, 'erros':{}}
+        try:
+            with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
+                 patch.object(search_service, 'pesquisar', side_effect=pesquisar_fake), \
+                 patch.object(busca, '_conferir_baixados'):
+                busca.pesquisar()
+                limite = time.monotonic() + 3
+                while not busca._grupos_busca[1]['cards'] and time.monotonic() < limite:
+                    self.app.processEvents()
+                    time.sleep(.01)
+                self.assertTrue(busca._buscando)
+                self.assertTrue(busca._grupos_busca[1]['cards'])
+                self.assertFalse(busca._grupos_busca[0]['cards'])
+                busca._grupos_busca[1]['cards'][0].check.setChecked(True)
+                liberar.set()
+                limite = time.monotonic() + 3
+                while busca._buscando and time.monotonic() < limite:
+                    self.app.processEvents()
+                    time.sleep(.01)
+                self.assertFalse(busca._buscando)
+                self.assertEqual([g['consulta'] for g in busca._grupos_busca], ['Lenta', 'Rápida'])
+                self.assertTrue(busca._grupos_busca[1]['cards'][0].check.isChecked())
+                self.assertEqual(len(busca._marcados), 1)
+        finally:
+            liberar.set()
+
     def test_resultado_exibe_quatro_metodos_e_origem_do_formato(self):
         from app.models import AudioFormat, TrackResult
         from app.ui.pages import search_page

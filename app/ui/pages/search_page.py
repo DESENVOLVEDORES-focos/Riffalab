@@ -5,10 +5,10 @@ from typing import Dict, List, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
-                               QLineEdit, QProgressBar, QPushButton, QScrollArea,
+                               QInputDialog, QMessageBox, QLineEdit, QProgressBar, QPushButton, QScrollArea,
                                QSizePolicy, QSpinBox, QVBoxLayout, QWidget)
 
-from ... import arquivos_baixados
+from ... import arquivos_baixados, estado_musicas
 from ...config import Config
 from ...db import Banco
 from ...models import TrackResult
@@ -32,6 +32,7 @@ class SearchPage(QWidget):
     processar_pedido = Signal(dict)          # {"resultado", "formato"}
     abrir_downloads = Signal()
     mensagem = Signal(str)
+    parcial_pronto = Signal(int, int, object)
 
     def __init__(self, config: Config, banco: Banco, carregador: CarregadorImagens,
                  pai: Optional[QWidget] = None) -> None:
@@ -42,7 +43,11 @@ class SearchPage(QWidget):
         self.cards: List[ResultCard] = []
         # Seleções vivem na sessão, não nos cartões de uma única pesquisa.
         self._marcados: dict[tuple[str, str], dict] = {}
+        self._erro_estado_inicial = ""
+        self.transferir_pedido = None
         self._buscando = False
+        self._geracao_busca = 0
+        self.parcial_pronto.connect(self._receber_parcial)
         self._geracao_baixados = 0
         self._fila_verif: List[ResultCard] = []
         self._verif_ativas = 0
@@ -236,7 +241,8 @@ class SearchPage(QWidget):
         rodape.setSpacing(12)
         self.lbl_selecao = QLabel("nenhuma música marcada")
         self.lbl_selecao.setObjectName("dim")
-        rodape.addWidget(self.lbl_selecao, 1)
+        self.lbl_selecao.setWordWrap(True)
+        raiz.addWidget(self.lbl_selecao)
         # a seleção é MANUAL (proposta §2.3); este botão só marca os melhores
         # quando o usuário pede — nada é marcado sozinho depois da pesquisa
         self.btn_melhores = QPushButton("Selecionar os melhores")
@@ -246,6 +252,11 @@ class SearchPage(QWidget):
         self.btn_melhores.setEnabled(False)
         self.btn_melhores.clicked.connect(self._selecionar_melhores)
         rodape.addWidget(self.btn_melhores)
+        self.btn_listas = QPushButton("Listas salvas")
+        self.btn_listas.setObjectName("fantasma")
+        self.btn_listas.setToolTip("Salvar as marcações em uma lista ou recuperar uma lista existente.")
+        self.btn_listas.clicked.connect(self._menu_listas)
+        rodape.addWidget(self.btn_listas)
         self.btn_limpar_marcados = QPushButton("Limpar marcações")
         self.btn_limpar_marcados.setObjectName("fantasma")
         self.btn_limpar_marcados.setToolTip("Desmarca os itens acumulados, sem apagar downloads.")
@@ -264,6 +275,7 @@ class SearchPage(QWidget):
         # sobreposição de pré-visualização (cobre a página enquanto aberta)
         self.previa = PreviewOverlay(self)
         self.previa.setVisible(False)
+        self._recuperar_marcacoes()
 
     # ------------------------------------------------------------------ avisos
     def _atualizar_aviso(self) -> None:
@@ -342,15 +354,22 @@ class SearchPage(QWidget):
         limite = int(self.config.get("limite_resultados") or 20)
 
         multiplas = len(consultas) > 1
-        kwargs = {} if multiplas else {"enriquecer_automatico": False}
+        self._geracao_busca += 1
+        geracao = self._geracao_busca
+        if multiplas:
+            self._iniciar_grupos_parciais(consultas)
+            kwargs = {"ao_parcial": lambda indice, dados: self.parcial_pronto.emit(geracao, indice, dados)}
+        else:
+            kwargs = {"enriquecer_automatico": False}
         EXECUTOR_GLOBAL.rodar(
             pesquisar_varias if multiplas else pesquisar,
             consultas if multiplas else consulta, self.config, limite, fontes,
             ordenar_por=self.ordem.currentData(), com_progresso=True, **kwargs,
-            ao_resultado=self._mostrar_varias if multiplas else self._mostrar,
-            ao_erro=self._erro,
+            ao_resultado=(lambda respostas: self._terminar_varias(geracao, respostas)) if multiplas
+                         else (lambda dados: self._mostrar(dados) if geracao == self._geracao_busca else None),
+            ao_erro=lambda msg: self._erro(msg) if geracao == self._geracao_busca else None,
             ao_progresso=lambda pct, msg: (self.barra.setValue(max(2, int(pct * 0.9))),
-                                           self.status.setText(msg)),
+                                           self.status.setText(msg)) if geracao == self._geracao_busca else None,
         )
 
     def _erro(self, msg: str) -> None:
@@ -412,6 +431,97 @@ class SearchPage(QWidget):
         self._avisar_filtrados()
         self._agendar_verificacoes()
         self._conferir_baixados(resultados + self.filtrados)
+
+    def _iniciar_grupos_parciais(self, consultas: list[str]) -> None:
+        self.vazio.hide()
+        self._status_base = f"0/{len(consultas)} pesquisas concluídas"
+        for consulta in consultas:
+            caixa = QFrame()
+            caixa.setObjectName("cartao")
+            layout = QVBoxLayout(caixa)
+            layout.setContentsMargins(12, 12, 12, 12)
+            titulo = QLabel(f"Pesquisa: {consulta}  ·  pesquisando…")
+            titulo.setTextFormat(Qt.PlainText)
+            titulo.setWordWrap(True)
+            titulo.setStyleSheet("font-size: 15px; font-weight: 700;")
+            layout.addWidget(titulo)
+            self.lista.insertWidget(self.lista.count() - 1, caixa)
+            self._grupos_busca.append({'consulta': consulta, 'widget': caixa, 'layout': layout,
+                'titulo': titulo, 'cards': [], 'filtrados': [], 'cards_filtrados': [], 'concluido': False})
+
+    def _receber_parcial(self, geracao: int, indice: int, dados: dict) -> None:
+        if geracao != self._geracao_busca or not self._buscando or not (0 <= indice < len(self._grupos_busca)):
+            return
+        grupo = self._grupos_busca[indice]
+        if grupo.get('concluido'):
+            return
+        grupo['concluido'] = True
+        resultados = list(dados.get('resultados') or [])
+        filtrados = list(dados.get('filtrados') or [])
+        grupo['filtrados'] = filtrados
+        grupo['resultados'] = resultados
+        grupo['titulo'].setText(f"Pesquisa: {grupo['consulta']}  ·  {len(resultados)} resultado(s)")
+        erros = dados.get('erros') or {}
+        if erros:
+            aviso = QLabel("Erro em fonte(s): " + "; ".join(f"{k}: {v}" for k, v in erros.items()))
+            aviso.setTextFormat(Qt.PlainText)
+            aviso.setWordWrap(True)
+            grupo['layout'].addWidget(aviso)
+        if not resultados:
+            grupo['layout'].addWidget(QLabel("Nenhum resultado visível para esta pesquisa."))
+        if filtrados:
+            texto = QLabel(f"{len(filtrados)} resultado(s) filtrado(s); use o botão acima para mostrar.")
+            texto.setWordWrap(True)
+            grupo['layout'].addWidget(texto)
+        novos = []
+        for resultado in resultados:
+            card = self._criar_card(resultado)
+            self.cards.append(card)
+            grupo['cards'].append(card)
+            grupo['layout'].addWidget(card)
+            novos.append(card)
+        self.filtrados.extend(filtrados)
+        if self._mostrando_filtrados:
+            for resultado in filtrados:
+                resultado.filtrado = True
+                card = self._criar_card(resultado)
+                self.cards.append(card)
+                self._cards_filtrados.append(card)
+                grupo['cards_filtrados'].append(card)
+                grupo['layout'].addWidget(card)
+                novos.append(card)
+        self.banco.registrar_historico('pesquisa', grupo['consulta'], ', '.join(dados.get('fontes') or []),
+                                       f"{len(resultados)} resultado(s)", len(resultados))
+        quantidade = len(self.filtrados)
+        acao = 'Ocultar' if self._mostrando_filtrados else 'Mostrar'
+        self.btn_filtrados.setText(f"{acao} resultados filtrados ({quantidade})")
+        self.btn_filtrados.setEnabled(bool(quantidade))
+        self.btn_melhores.setEnabled(bool(self.cards))
+        feitos = sum(bool(g.get('concluido')) for g in self._grupos_busca)
+        self._status_base = f"{feitos}/{len(self._grupos_busca)} pesquisas concluídas · {len(self.cards)} resultado(s)"
+        self.status.setText(self._status_base)
+        self._atualizar_lote()
+        self._fila_verif.extend(c for c in novos if (not c.resultado.formatos or
+            (c.resultado.fonte == 'ytdlp' and not c.resultado.extra.get('metodos_consulta')))
+            and not c.resultado.extra.get('erro_detalhe'))
+        self._verificar_proximo()
+
+    def _terminar_varias(self, geracao: int, respostas: list[dict]) -> None:
+        if geracao != self._geracao_busca or not self._buscando:
+            return
+        for i, dados in enumerate(respostas):
+            self._receber_parcial(geracao, i, dados)
+        self._buscando = False
+        self.btn_buscar.setEnabled(True)
+        self.btn_buscar.setText("Pesquisar")
+        self.barra.setVisible(False)
+        self._status_base = f"{len(respostas)} pesquisa(s) · {len(self.cards)} resultado(s)"
+        self.status.setText(self._status_base)
+        todos = [r for g in self._grupos_busca for r in g.get('resultados', []) + g['filtrados']]
+        if self.filtrados:
+            self._avisar_filtrados()
+        if todos:
+            self._conferir_baixados(todos)
 
     def _mostrar_varias(self, respostas: list[dict]) -> None:
         """Apresenta uma seção por termo, inclusive quando um deles falha."""
@@ -555,7 +665,7 @@ class SearchPage(QWidget):
             self._mostrando_filtrados = False
             self.btn_filtrados.setText(f"Mostrar resultados filtrados ({len(self.filtrados)})")
             self.btn_melhores.setEnabled(bool(self.cards))
-            self.vazio.setVisible(not self.cards)
+            self.vazio.setVisible(not self.cards and not self._grupos_busca)
             self._atualizar_lote()
             return
         self.vazio.setVisible(False)
@@ -804,12 +914,15 @@ class SearchPage(QWidget):
         self._atualizar_lote()
         if marcado:
             self._formato_mudou(card)
+        else:
+            self._gravar_marcacoes()
 
     def _formato_mudou(self, card: ResultCard) -> None:
         chave = self._chave_resultado(card.resultado)
         formato = card.combo.currentData()
         if chave in self._marcados and formato is not None:
-            self._marcados[chave] = {'resultado': card.resultado, 'formato': formato}
+            edicao = self._marcados[chave].get('edicao')
+            self._marcados[chave] = {'resultado': card.resultado, 'formato': formato, 'edicao': edicao or {}}
             for outro in self.cards:
                 if outro is card or self._chave_resultado(outro.resultado) != chave:
                     continue
@@ -821,24 +934,134 @@ class SearchPage(QWidget):
                         outro.combo.blockSignals(False)
                         outro._atualizar_origem_formato()
                         break
+            self._gravar_marcacoes()
 
     def _limpar_marcados(self) -> None:
         self._marcados.clear()
+        self._gravar_marcacoes()
         for card in self.cards:
             card.check.blockSignals(True)
             card.check.setChecked(False)
             card.check.blockSignals(False)
         self._atualizar_lote()
 
+    def _gravar_marcacoes(self) -> bool:
+        if self._erro_estado_inicial:
+            self.mensagem.emit("Não é possível salvar: houve falha ao recuperar as marcações anteriores.")
+            return False
+        try:
+            self.banco.salvar_estado('marcacoes', [estado_musicas.serializar_pedido(p)
+                                                    for p in self._marcados.values()])
+            return True
+        except Exception as exc:
+            self.mensagem.emit(f"Não foi possível salvar as marcações: {exc}")
+            self.status.setText("Não foi possível salvar as marcações no computador. Confira o banco de dados.")
+            return False
+
+    def _recuperar_marcacoes(self) -> None:
+        try:
+            registros = self.banco.ler_estado('marcacoes', []) or []
+            pedidos = [estado_musicas.desserializar_pedido(dados) for dados in registros]
+            for pedido in pedidos:
+                self._marcados[self._chave_resultado(pedido['resultado'])] = pedido
+            self._atualizar_lote()
+        except Exception as exc:
+            # Não sobrescreve o conteúdo original se ele não puder ser lido.
+            self._erro_estado_inicial = str(exc)
+            self.status.setText("Não foi possível recuperar as marcações salvas; confira o banco de dados.")
+
+    def _guardar_lista(self, nome: str, substituir: bool = False) -> None:
+        nome = nome.strip()
+        if not nome or not self._marcados:
+            raise ValueError("Digite um nome e marque pelo menos uma música.")
+        if not substituir and nome.casefold() in {n.casefold() for n in self.banco.nomes_listas()}:
+            raise ValueError("Já existe uma lista com esse nome.")
+        existente = next((n for n in self.banco.nomes_listas() if n.casefold() == nome.casefold()), None)
+        if existente:
+            nome = existente
+        self.banco.salvar_lista(nome, [estado_musicas.serializar_pedido(p)
+                                      for p in self._marcados.values()])
+
+    def _carregar_lista(self, nome: str) -> int:
+        # Converte tudo antes de alterar as marcações, para não carregar parcialmente.
+        pedidos = [estado_musicas.desserializar_pedido(d) for d in self.banco.ler_lista(nome)]
+        for pedido in pedidos:
+            self._marcados[self._chave_resultado(pedido['resultado'])] = pedido
+        for card in self.cards:
+            pedido = self._marcados.get(self._chave_resultado(card.resultado))
+            if pedido:
+                fmt = pedido.get('formato')
+                card.check.blockSignals(True)
+                card.check.setChecked(True)
+                card.check.blockSignals(False)
+                if fmt:
+                    for i in range(card.combo.count()):
+                        item = card.combo.itemData(i)
+                        if item and item.format_id == fmt.format_id:
+                            card.combo.blockSignals(True)
+                            card.combo.setCurrentIndex(i)
+                            card.combo.blockSignals(False)
+                            card._atualizar_origem_formato()
+                            break
+        self._atualizar_lote()
+        self._gravar_marcacoes()
+        return len(pedidos)
+
+    def _menu_listas(self) -> None:
+        acao, ok = QInputDialog.getItem(self, "Listas de músicas", "O que deseja fazer?",
+            ["Salvar marcações em uma lista", "Carregar uma lista", "Excluir uma lista"], 0, False)
+        if not ok:
+            return
+        try:
+            if acao.startswith("Salvar"):
+                if not self._marcados:
+                    self.mensagem.emit("Marque músicas antes de salvar uma lista.")
+                    return
+                nome, ok = QInputDialog.getText(self, "Salvar lista", "Nome da lista:")
+                if not ok or not nome.strip():
+                    return
+                substituir = nome.strip().casefold() in {n.casefold() for n in self.banco.nomes_listas()}
+                if substituir and QMessageBox.question(self, "Substituir lista?",
+                    f"A lista ‘{nome.strip()}’ já existe. Substituir seu conteúdo?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                    return
+                self._guardar_lista(nome, substituir)
+                self.mensagem.emit(f"Lista ‘{nome.strip()}’ salva.")
+            else:
+                nomes = self.banco.nomes_listas()
+                if not nomes:
+                    self.mensagem.emit("Você ainda não tem listas salvas.")
+                    return
+                nome, ok = QInputDialog.getItem(self, "Listas de músicas", "Escolha a lista:", nomes, 0, False)
+                if not ok:
+                    return
+                if acao.startswith("Carregar"):
+                    n = self._carregar_lista(nome)
+                    self.mensagem.emit(f"Lista ‘{nome}’ carregada: {n} música(s).")
+                elif QMessageBox.question(self, "Excluir lista?", f"Excluir a lista ‘{nome}’? Suas músicas não serão apagadas.",
+                                           QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
+                    self.banco.apagar_lista(nome)
+                    self.mensagem.emit(f"Lista ‘{nome}’ excluída.")
+        except Exception as exc:
+            QMessageBox.warning(self, "Listas de músicas", str(exc)[:500])
+
     # ---------------------------------------------------------------- processar
+    def _transferir(self, pedido: dict) -> bool:
+        if self.transferir_pedido is not None:
+            return bool(self.transferir_pedido(pedido))
+        self.processar_pedido.emit(pedido)
+        return True
+
     def _processar_um(self, dados: dict) -> None:
         """Adiciona um resultado sem sair da pesquisa nem baixar o áudio."""
         resultado = dados.get("resultado")
         if resultado is None:
             return
-        self.processar_pedido.emit(dados)
+        if not self._transferir(dados):
+            return
         chave = self._chave_resultado(resultado)
         self._marcados.pop(chave, None)
+        self._gravar_marcacoes()
         for card in self.cards:
             if self._chave_resultado(card.resultado) == chave and card.check.isChecked():
                 card.check.setChecked(False)
@@ -889,10 +1112,21 @@ class SearchPage(QWidget):
         pedidos = [dict(pedido, lote=True) for pedido in self._marcados.values()]
         if not pedidos:
             return
+        transferidas = []
         for pedido in pedidos:
-            self.processar_pedido.emit(pedido)
-        self._limpar_marcados()
-        self.abrir_downloads.emit()
+            if self._transferir(pedido):
+                transferidas.append(self._chave_resultado(pedido['resultado']))
+        for chave in transferidas:
+            self._marcados.pop(chave, None)
+        self._gravar_marcacoes()
+        for card in self.cards:
+            if self._chave_resultado(card.resultado) in transferidas:
+                card.check.blockSignals(True)
+                card.check.setChecked(False)
+                card.check.blockSignals(False)
+        self._atualizar_lote()
+        if transferidas:
+            self.abrir_downloads.emit()
 
     def atualizar_ferramentas(self, dados: dict) -> None:
         ferramenta = dados.get('yt-dlp')

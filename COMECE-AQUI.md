@@ -18,7 +18,7 @@ O download real do YouTube e a interface no Windows ainda precisam ser validados
 
 1. Em **Pesquisar**, procure a música e o artista ou cole um link de vídeo do YouTube. Use a prévia para distinguir versões e shows e escolha o formato de áudio. Por padrão é escolhido o melhor disponível; a verificação detalhada pode levar alguns segundos. Sinais como Topic ou VEVO ajudam a priorizar resultados, mas não garantem que o canal seja oficial.
 2. Marque os resultados e clique em **Adicionar a Downloads** (ou use **Adicionar** em um cartão). Isso ainda não baixa o áudio.
-3. Em **Downloads**, marque ou desmarque cada música. Use **Escolher capa** para pesquisar e revisar as opções de cada uma, ou **Escolher capas selecionadas** para revisá-las em sequência. Confirme a imagem desejada ou escolha **Não usar capa**. Se não encontrar capa, você pode continuar sem ela ou cancelar e tentar novamente.
+3. Em **Downloads**, marque ou desmarque cada música. Use **Escolher capa** para pesquisar e revisar as opções de cada uma, ou **Revisar capas selecionadas** para revisá-las em sequência. Confirme a imagem desejada ou escolha **Não usar capa**. Se não encontrar capa, você pode continuar sem ela ou cancelar e tentar novamente.
 4. Quando as capas das músicas marcadas tiverem sido revisadas, clique em **Baixar selecionadas**. Elas serão processadas uma por vez, na ordem da lista, com conversão para MP3 e gravação de tags e da capa escolhida. Os itens desmarcados permanecem na lista.
 
 A lista de seleção é temporária e não é preservada ao fechar o aplicativo. Os arquivos finalizados ficam na pasta configurada, por padrão `downloads`.

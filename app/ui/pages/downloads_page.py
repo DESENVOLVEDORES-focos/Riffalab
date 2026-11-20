@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel,
-                               QMessageBox, QProgressBar, QPushButton, QScrollArea,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
+                               QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
                                QVBoxLayout, QWidget)
 
+from ... import estado_musicas
 from ...config import Config
 from ...downloader import GerenciadorFila
 from ...models import CoverResult
@@ -37,6 +38,7 @@ CORES_STATUS = {
 class LinhaJob(QFrame):
     abrir = Signal(str)
     cancelar = Signal(int)
+    tentar = Signal(int)
 
     def __init__(self, job: dict, pai: Optional[QWidget] = None) -> None:
         super().__init__(pai)
@@ -72,6 +74,11 @@ class LinhaJob(QFrame):
         self.btn_abrir.setObjectName("fantasma")
         self.btn_abrir.clicked.connect(self._abrir)
         linha.addWidget(self.btn_abrir)
+
+        self.btn_tentar = QPushButton("Tentar novamente")
+        self.btn_tentar.setObjectName("fantasma")
+        self.btn_tentar.clicked.connect(lambda: self.tentar.emit(int(self.job.get("id", 0))))
+        linha.addWidget(self.btn_tentar)
 
         self.btn_cancelar = QPushButton("Cancelar")
         self.btn_cancelar.setObjectName("fantasma")
@@ -115,6 +122,7 @@ class LinhaJob(QFrame):
         self.btn_cancelar.setVisible(status == 'na fila')
         self.btn_cancelar.setToolTip('Cancelar esta música enquanto aguarda na fila')
         self.btn_abrir.setVisible(status == "finalizado" and bool(job.get("caminho")))
+        self.btn_tentar.setVisible(status == 'erro' and not job.get('nova_tentativa'))
 
     def _abrir(self) -> None:
         caminho = self.job.get("caminho") or ""
@@ -127,6 +135,7 @@ class LinhaSelecao(QFrame):
     alterada = Signal()
     remover = Signal(object)
     escolher_capa = Signal(object)
+    editar = Signal(object)
 
     def __init__(self, pedido: dict, pai=None) -> None:
         super().__init__(pai)
@@ -140,10 +149,11 @@ class LinhaSelecao(QFrame):
         layout.addWidget(self.check)
         textos = QVBoxLayout()
         r = pedido['resultado']
-        nome = QLabel(f"{r.artista or 'Artista desconhecido'} — {r.titulo}")
-        nome.setWordWrap(True)
-        nome.setStyleSheet('font-weight: 700;')
-        textos.addWidget(nome)
+        self.nome = QLabel(f"{r.artista or 'Artista desconhecido'} — {r.titulo}")
+        self.nome.setTextFormat(Qt.PlainText)
+        self.nome.setWordWrap(True)
+        self.nome.setStyleSheet('font-weight: 700;')
+        textos.addWidget(self.nome)
         fmt = pedido.get('formato')
         audio = 'Melhor áudio disponível' if not fmt or fmt.format_id == 'bestaudio' else fmt.descricao_curta()
         self.detalhes = QLabel(f'{audio} · capa ainda não escolhida')
@@ -151,6 +161,10 @@ class LinhaSelecao(QFrame):
         self.detalhes.setObjectName('dim')
         textos.addWidget(self.detalhes)
         layout.addLayout(textos, 1)
+        self.btn_editar = QPushButton('Editar dados')
+        self.btn_editar.setObjectName('fantasma')
+        self.btn_editar.clicked.connect(lambda: self.editar.emit(self))
+        layout.addWidget(self.btn_editar)
         self.btn_capa = QPushButton('Escolher capa')
         self.btn_capa.setObjectName('fantasma')
         self.btn_capa.clicked.connect(lambda: self.escolher_capa.emit(self))
@@ -162,6 +176,8 @@ class LinhaSelecao(QFrame):
 
     def definir_preparacao(self, preparacao: dict) -> None:
         self.preparacao = preparacao
+        meta = preparacao['meta']
+        self.nome.setText(f"{meta.artista or 'Artista desconhecido'} — {meta.titulo}")
         capa = preparacao['capa']
         fmt = self.pedido.get('formato')
         audio = 'Melhor áudio disponível' if not fmt or fmt.format_id == 'bestaudio' else fmt.descricao_curta()
@@ -169,6 +185,44 @@ class LinhaSelecao(QFrame):
         self.detalhes.setText(f'{audio} · {detalhe}')
         self.btn_capa.setText('Trocar capa')
         self.alterada.emit()
+
+
+class DialogoEditarDados(QDialog):
+    """Edição explícita do título, artista e álbum antes da preparação."""
+    def __init__(self, linha: LinhaSelecao, pai=None):
+        super().__init__(pai)
+        self.setWindowTitle('Editar dados da música')
+        self.setMinimumWidth(460)
+        raiz = QVBoxLayout(self)
+        aviso = QLabel('Os dados editados serão usados nas tags e no nome/pasta do arquivo. '
+                       'Ao alterá-los, a capa precisa ser revisada novamente.')
+        aviso.setWordWrap(True)
+        raiz.addWidget(aviso)
+        formulario = QFormLayout()
+        r = linha.pedido['resultado']
+        meta = linha.preparacao.get('meta') if linha.preparacao else None
+        edicao = linha.pedido.get('edicao') or {}
+        self.campos = {}
+        for chave, rotulo in [('titulo', 'Título'), ('artista', 'Artista'), ('album', 'Álbum')]:
+            valor = edicao.get(chave, getattr(meta or r, chave, '') or '')
+            campo = QLineEdit(str(valor))
+            self.campos[chave] = campo
+            formulario.addRow(rotulo, campo)
+        raiz.addLayout(formulario)
+        botoes = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        botoes.accepted.connect(self._validar)
+        botoes.rejected.connect(self.reject)
+        raiz.addWidget(botoes)
+
+    def valores(self) -> dict:
+        return {k: c.text().strip() for k, c in self.campos.items()}
+
+    def _validar(self) -> None:
+        dados = self.valores()
+        if not dados['titulo'] or not dados['artista']:
+            QMessageBox.warning(self, 'Dados incompletos', 'Informe título e artista.')
+            return
+        self.accept()
 
 
 class DownloadsPage(QWidget):
@@ -181,6 +235,9 @@ class DownloadsPage(QWidget):
         self.linhas: Dict[int, LinhaJob] = {}
         self.selecoes: list[LinhaSelecao] = []
         self._preparando = False
+        self._sem_capa_lote = False
+        self._restaurando = True
+        self._erro_recuperar = ""
         self._a_preparar: list[LinhaSelecao] = []
 
         raiz = QVBoxLayout(self)
@@ -209,10 +266,14 @@ class DownloadsPage(QWidget):
         raiz.addLayout(topo)
 
         acoes = QHBoxLayout()
-        self.btn_preparar = QPushButton('Escolher capas selecionadas')
+        self.btn_preparar = QPushButton('Revisar capas selecionadas')
         self.btn_preparar.setObjectName('fantasma')
         self.btn_preparar.clicked.connect(self._preparar_selecionadas)
         acoes.addWidget(self.btn_preparar)
+        self.btn_sem_capa = QPushButton('Preparar selecionadas sem capa')
+        self.btn_sem_capa.setObjectName('fantasma')
+        self.btn_sem_capa.clicked.connect(self._preparar_sem_capa)
+        acoes.addWidget(self.btn_sem_capa)
         self.btn_baixar = QPushButton('Baixar selecionadas')
         self.btn_baixar.setObjectName('primario')
         self.btn_baixar.clicked.connect(self._baixar_selecionadas)
@@ -237,6 +298,8 @@ class DownloadsPage(QWidget):
         fila.job_adicionado.connect(self.adicionar)
         fila.job_atualizado.connect(self.atualizar)
         fila.fila_alterada.connect(self._atualizar_resumo)
+        self._restaurar_selecoes()
+        self._restaurando = False
         self._atualizar_resumo()
 
     def adicionar_selecao(self, pedido: dict) -> bool:
@@ -248,13 +311,21 @@ class DownloadsPage(QWidget):
             self.mensagem.emit('Esta música já está na lista de Downloads.')
             return False
         linha = LinhaSelecao(pedido)
-        linha.alterada.connect(self._atualizar_resumo)
+        linha.alterada.connect(self._selecao_alterada)
         linha.remover.connect(self._remover_selecao)
         linha.escolher_capa.connect(self._preparar_uma)
+        linha.editar.connect(self._editar_dados)
         self.selecoes.append(linha)
         # Itens pendentes aparecem antes dos downloads já iniciados.
         self.lista.insertWidget(len(self.selecoes) - 1, linha)
         self._atualizar_resumo()
+        if not self._persistir_selecoes():
+            self.selecoes.remove(linha)
+            self.lista.removeWidget(linha)
+            linha.setParent(None)
+            linha.deleteLater()
+            self._atualizar_resumo()
+            return False
         return True
 
     def _remover_selecao(self, linha: LinhaSelecao) -> None:
@@ -265,6 +336,54 @@ class DownloadsPage(QWidget):
         linha.setParent(None)
         linha.deleteLater()
         self._atualizar_resumo()
+        self._persistir_selecoes()
+
+    def _selecao_alterada(self) -> None:
+        self._atualizar_resumo()
+        self._persistir_selecoes()
+
+    def _persistir_selecoes(self) -> bool:
+        if self._restaurando:
+            return True
+        if self._erro_recuperar:
+            self.mensagem.emit("Não é possível salvar Downloads: falha ao recuperar dados anteriores.")
+            return False
+        try:
+            self.fila.banco.salvar_estado('downloads_selecionados',
+                [estado_musicas.serializar_selecao(linha) for linha in self.selecoes])
+            return True
+        except Exception as exc:
+            self.mensagem.emit(f"Não foi possível salvar a lista de Downloads: {exc}")
+            return False
+
+    def _restaurar_selecoes(self) -> None:
+        try:
+            registros = self.fila.banco.ler_estado('downloads_selecionados', []) or []
+            dados = [estado_musicas.desserializar_selecao(d) for d in registros]
+            for pedido, marcada, preparacao in dados:
+                if self.adicionar_selecao(pedido):
+                    linha = self.selecoes[-1]
+                    linha.check.setChecked(marcada)
+                    if preparacao:
+                        linha.definir_preparacao(preparacao)
+                    elif pedido.get('edicao'):
+                        linha.nome.setText(f"{pedido['edicao'].get('artista', '')} — {pedido['edicao'].get('titulo', '')}")
+        except Exception as exc:
+            self._erro_recuperar = str(exc)
+
+    def _editar_dados(self, linha: LinhaSelecao) -> None:
+        if self._preparando:
+            return
+        dialogo = DialogoEditarDados(linha, self)
+        if dialogo.exec() != QDialog.Accepted:
+            return
+        edicao = dialogo.valores()
+        linha.pedido['edicao'] = edicao
+        linha.preparacao = None
+        linha.nome.setText(f"{edicao['artista']} — {edicao['titulo']}")
+        linha.detalhes.setText('Dados editados · escolha ou dispense a capa novamente')
+        linha.btn_capa.setText('Escolher capa')
+        self._selecao_alterada()
 
     def _preparar_uma(self, linha: LinhaSelecao) -> None:
         if self._preparando:
@@ -272,13 +391,24 @@ class DownloadsPage(QWidget):
         self._iniciar_preparacao([linha])
 
     def _preparar_selecionadas(self) -> None:
-        self._iniciar_preparacao([l for l in self.selecoes if l.check.isChecked()
-                                  and l.preparacao is None])
+        self._iniciar_preparacao([l for l in self.selecoes if l.check.isChecked()])
 
-    def _iniciar_preparacao(self, linhas: list[LinhaSelecao]) -> None:
+    def _preparar_sem_capa(self) -> None:
+        linhas = [l for l in self.selecoes if l.check.isChecked()]
+        if not linhas or self._preparando:
+            return
+        resposta = QMessageBox.question(self, 'Preparar sem capa',
+            f"Preparar {len(linhas)} música(s) selecionada(s) sem capa? "
+            "Isso substitui as capas escolhidas para essas músicas, mas não altera arquivos já baixados.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if resposta == QMessageBox.Yes:
+            self._iniciar_preparacao(linhas, sem_capa=True)
+
+    def _iniciar_preparacao(self, linhas: list[LinhaSelecao], sem_capa: bool = False) -> None:
         if self._preparando or not linhas:
             return
         self._preparando = True
+        self._sem_capa_lote = sem_capa
         self._a_preparar = list(linhas)
         self._atualizar_resumo()
         self._proxima_capa()
@@ -287,13 +417,14 @@ class DownloadsPage(QWidget):
         if not self._a_preparar:
             self._preparando = False
             self._atualizar_resumo()
-            self.mensagem.emit('Capas revisadas. Você já pode iniciar o lote.')
+            self.mensagem.emit('Preparação concluída. Você já pode iniciar o lote.')
             return
         linha = self._a_preparar.pop(0)
         r = linha.pedido['resultado']
         self.resumo.setText(f'Buscando metadados e capas: {r.artista} — {r.titulo}…')
         EXECUTOR_GLOBAL.rodar(
-            preparar_musica, r, self.config,
+            preparar_musica, r, self.config, edicao=linha.pedido.get('edicao'),
+            sem_capa=self._sem_capa_lote,
             ao_resultado=lambda dados, l=linha: self._capa_pronta(l, dados),
             ao_erro=self._falha_preparacao)
 
@@ -302,6 +433,10 @@ class DownloadsPage(QWidget):
             return
         capa = dados['capa']
         meta = dados['meta']
+        if self._sem_capa_lote:
+            linha.definir_preparacao(dados)
+            self._proxima_capa()
+            return
         dialogo = DialogoCapas(self, capa, {'titulo': meta.titulo, 'artista': meta.artista,
                                             'album': meta.album, 'ano': meta.ano})
         if dialogo.exec() != QDialog.Accepted:
@@ -359,9 +494,17 @@ class DownloadsPage(QWidget):
         linha = LinhaJob(job)
         linha.abrir.connect(self._abrir_arquivo)
         linha.cancelar.connect(self.fila.cancelar)
+        linha.tentar.connect(self._tentar_novamente)
         self.linhas[int(job["id"])] = linha
         self.lista.insertWidget(self.lista.count() - 1, linha)
         self._atualizar_resumo()
+
+    def _tentar_novamente(self, jid: int) -> None:
+        try:
+            self.fila.tentar_novamente(jid)
+            self.mensagem.emit('Nova tentativa adicionada à fila.')
+        except Exception as exc:
+            QMessageBox.warning(self, 'Não foi possível tentar novamente', str(exc)[:500])
 
     def atualizar(self, job: dict) -> None:
         linha = self.linhas.get(int(job.get("id", 0)))
@@ -377,12 +520,15 @@ class DownloadsPage(QWidget):
         erros = sum(1 for l in self.linhas.values() if l.job.get("status") == "erro")
         escolhidas = [l for l in self.selecoes if l.check.isChecked()]
         faltam = sum(l.preparacao is None for l in escolhidas)
-        self.btn_preparar.setEnabled(bool(escolhidas) and bool(faltam) and not self._preparando)
+        self.btn_preparar.setEnabled(bool(escolhidas) and not self._preparando)
+        self.btn_sem_capa.setEnabled(bool(escolhidas) and not self._preparando)
         self.btn_baixar.setEnabled(bool(escolhidas) and not faltam and not self._preparando)
         self.btn_baixar.setText(f'Baixar selecionadas ({len(escolhidas)})')
         for linha in self.selecoes:
             linha.setEnabled(not self._preparando)
-        if not self._preparando:
+        if self._erro_recuperar:
+            self.resumo.setText('Não foi possível recuperar Downloads salvos; dados anteriores foram preservados. ' + self._erro_recuperar[:180])
+        elif not self._preparando:
             self.resumo.setText(f'{len(self.selecoes)} na seleção · {faltam} capa(s) a revisar · '
                                 f'{pendentes} na fila · {prontos} concluído(s) · {erros} erro(s)')
 

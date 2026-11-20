@@ -155,7 +155,7 @@ def pesquisar(consulta: str, config: Config, limite: int = 20,
 def pesquisar_varias(consultas: List[str], config: Config, limite: int = 20,
                      fontes_ids: Optional[List[str]] = None,
                      progresso: Progresso = None,
-                     ordenar_por: str = "relevancia") -> List[Dict[str, object]]:
+                     ordenar_por: str = "relevancia", ao_parcial=None) -> List[Dict[str, object]]:
     """Pesquisa cada termo separadamente, com concorrência limitada e ordem estável.
 
     Falhas em um termo não interrompem os demais. Entradas vazias são ignoradas;
@@ -178,6 +178,11 @@ def pesquisar_varias(consultas: List[str], config: Config, limite: int = 20,
                 respostas[i] = {"consulta": termos[i], "resultados": [], "filtrados": [],
                                 "fontes": [], "segundos": 0,
                                 "erros": {"pesquisa": f"{type(exc).__name__}: {exc}"}}
+            if ao_parcial:
+                try:
+                    ao_parcial(i, respostas[i])
+                except Exception:
+                    pass  # uma falha de notificação não interrompe pesquisas
             feitos += 1
             _emitir(progresso, int(feitos * 100 / len(termos)),
                     f"Pesquisas concluídas: {feitos}/{len(termos)}")

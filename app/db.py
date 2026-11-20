@@ -1,6 +1,7 @@
 """Banco local (SQLite): histórico de pesquisas, downloads e biblioteca."""
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import time
@@ -62,6 +63,16 @@ CREATE TABLE IF NOT EXISTS biblioteca (
     indexado_em REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS estado_local (
+    chave TEXT PRIMARY KEY,
+    dados TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS listas_musicas (
+    nome TEXT PRIMARY KEY COLLATE NOCASE,
+    dados TEXT NOT NULL,
+    atualizado_em REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_hist_criado ON historico(criado_em DESC);
 CREATE INDEX IF NOT EXISTS idx_dl_criado   ON downloads(criado_em DESC);
 CREATE INDEX IF NOT EXISTS idx_bib_artista ON biblioteca(artista);
@@ -99,6 +110,37 @@ class Banco:
                 self._con.close()
             except Exception:
                 pass
+
+    # -------------------------------------------------- seleções e listas
+    def salvar_estado(self, chave: str, valor: Any) -> None:
+        dados = json.dumps(valor, ensure_ascii=False, allow_nan=False)
+        self._exec("INSERT INTO estado_local (chave,dados) VALUES (?,?) "
+                   "ON CONFLICT(chave) DO UPDATE SET dados=excluded.dados", (chave, dados))
+
+    def ler_estado(self, chave: str, padrao=None):
+        linhas = self._query("SELECT dados FROM estado_local WHERE chave=?", (chave,))
+        return json.loads(linhas[0]['dados']) if linhas else padrao
+
+    def salvar_lista(self, nome: str, pedidos: list) -> None:
+        nome = nome.strip()
+        if not nome:
+            raise ValueError('O nome da lista não pode estar vazio')
+        dados = json.dumps(pedidos, ensure_ascii=False, allow_nan=False)
+        self._exec("INSERT INTO listas_musicas (nome,dados,atualizado_em) VALUES (?,?,?) "
+                   "ON CONFLICT(nome) DO UPDATE SET dados=excluded.dados, atualizado_em=excluded.atualizado_em",
+                   (nome, dados, time.time()))
+
+    def nomes_listas(self) -> list[str]:
+        return [x['nome'] for x in self._query("SELECT nome FROM listas_musicas ORDER BY nome COLLATE NOCASE")]
+
+    def ler_lista(self, nome: str) -> list:
+        itens = self._query("SELECT dados FROM listas_musicas WHERE nome=? COLLATE NOCASE", (nome,))
+        if not itens:
+            raise ValueError('Lista não encontrada')
+        return json.loads(itens[0]['dados'])
+
+    def apagar_lista(self, nome: str) -> None:
+        self._exec("DELETE FROM listas_musicas WHERE nome=? COLLATE NOCASE", (nome,))
 
     # ---------------------------------------------------------- histórico
     def registrar_historico(self, tipo: str, consulta: str, fonte: str = "",

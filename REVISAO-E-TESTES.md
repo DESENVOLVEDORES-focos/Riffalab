@@ -28,7 +28,7 @@ Esta revisão foi feita durante o desenvolvimento, em Linux. O código usa Pytho
 - Não havia máquina virtual Windows ou Wine disponível nesta revisão. O `.bat`, os executáveis `.exe`, o DPAPI e os diálogos nativos **não foram executados no Windows**. Caminhos e comandos foram revisados e simulados, mas não há garantia de funcionamento em toda instalação.
 - O acesso de rede deste ambiente não permitiu testar uma pesquisa ou download real no YouTube, nem a API Groq, cookies reais ou os serviços de capas.
 - O QtWebEngine não pôde ser carregado neste ambiente Linux; a prévia incorporada e seus botões precisam ser testados em uma instalação Windows. O fallback de abertura da página original foi testado com chamada simulada.
-- A lista de seleção permanece durante a sessão, mas não é restaurada depois de fechar o aplicativo. Um download em andamento não tem botão de cancelamento efetivo; o botão Cancelar se aplica apenas aos itens aguardando na fila. Aguarde o processamento terminar antes de fechar.
+- A seleção e as marcações são salvas no banco local e restauradas quando o aplicativo abre. Um download em andamento não tem botão de cancelamento efetivo; o botão Cancelar se aplica apenas aos itens aguardando na fila. Aguarde o processamento terminar antes de fechar.
 - `INICIAR.bat` é o iniciador de desenvolvimento, não uma compilação. A criação de um `.exe` fica para uma etapa posterior.
 
 Use apenas conteúdo que você tenha direito de baixar. Não compartilhe cookies, chaves ou diagnósticos sem remover informações sensíveis.

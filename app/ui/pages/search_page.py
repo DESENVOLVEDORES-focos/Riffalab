@@ -14,7 +14,7 @@ from ...db import Banco
 from ...models import TrackResult
 from ...search_service import pesquisar, pesquisar_varias
 from ...sources import todas_as_fontes
-from ...workers import EXECUTOR_GLOBAL
+from ...workers import EXECUTOR_GLOBAL, EXECUTOR_FORMATOS
 from .. import dialogos
 from ..theme import PALETA
 from ..widgets.images import CarregadorImagens
@@ -34,19 +34,24 @@ class SearchPage(QWidget):
     mensagem = Signal(str)
     parcial_pronto = Signal(int, int, object)
     formato_parcial = Signal(object, object, object)
+    marcacoes_alteradas = Signal()
 
     def __init__(self, config: Config, banco: Banco, carregador: CarregadorImagens,
-                 pai: Optional[QWidget] = None) -> None:
+                 pai: Optional[QWidget] = None, *, modo: str = 'normal',
+                 marcados_compartilhados=None, erro_compartilhado: str = '') -> None:
         super().__init__(pai)
+        self.modo = modo
         self.config = config
         self.banco = banco
         self.carregador = carregador
         self.cards: List[ResultCard] = []
         # Seleções vivem na sessão, não nos cartões de uma única pesquisa.
-        self._marcados: dict[tuple[str, str], dict] = {}
-        self._erro_estado_inicial = ""
+        self._marcados: dict[tuple[str, str], dict] = (
+            marcados_compartilhados if marcados_compartilhados is not None else {})
+        self._erro_estado_inicial = erro_compartilhado
         self.transferir_pedido = None
         self._buscando = False
+        self._encerrando = False
         self._geracao_busca = 0
         self.parcial_pronto.connect(self._receber_parcial)
         self.formato_parcial.connect(self._receber_formato_parcial)
@@ -67,42 +72,44 @@ class SearchPage(QWidget):
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(18, 14, 18, 10)
         raiz.setSpacing(7)
+        # Uma única rolagem vertical percorre os campos e TODOS os resultados.
+        # Não há uma caixa de resultados limitada dentro de outra rolagem.
+        self.area = QScrollArea()
+        self.area.setWidgetResizable(True)
+        self.area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        conteudo = QWidget()
+        corpo = QVBoxLayout(conteudo)
+        corpo.setContentsMargins(0, 0, 6, 8)
+        corpo.setSpacing(7)
+        self.area.setWidget(conteudo)
+        raiz.addWidget(self.area, 1)
 
         # ------------------------------------------------------- cabeçalho
         topo = QHBoxLayout()
         titulos = QVBoxLayout()
         titulos.setSpacing(2)
-        t = QLabel("Pesquisar música")
+        t = QLabel("Pesquisa de várias músicas" if modo == 'varias' else "Pesquisa normal")
         t.setObjectName("titulo")
         self.lbl_descricao = QLabel("Compare formatos, escolha as músicas e prepare o MP3 com ou sem capa.")
         self.lbl_descricao.setObjectName("subtitulo")
         titulos.addWidget(t)
         titulos.addWidget(self.lbl_descricao)
         topo.addLayout(titulos, 1)
-        raiz.addLayout(topo)
+        corpo.addLayout(topo)
 
-        # Duas abas de entrada compartilham os mesmos filtros e resultados.
-        # Ao pesquisar, apenas os campos são recolhidos: os resultados recebem
-        # o espaço principal, e os termos continuam disponíveis para edição.
+        # Páginas independentes na barra lateral. A barra interna fica oculta;
+        # o seletor só controla qual formulário esta instância apresenta.
         cab_busca = QHBoxLayout()
         self.abas_busca = QTabBar()
         self.abas_busca.addTab("Pesquisa normal")
         self.abas_busca.addTab("Várias músicas")
-        self.abas_busca.setExpanding(False)
-        self.abas_busca.setDocumentMode(True)
-        self.abas_busca.setStyleSheet(
-            f"QTabBar::tab {{ padding: 8px 20px; color: {PALETA['texto_dim']}; "
-            f"border-bottom: 2px solid {PALETA['border']}; }} "
-            f"QTabBar::tab:selected {{ color: {PALETA['texto']}; "
-            f"border-bottom: 3px solid {PALETA['ciano']}; font-weight: bold; }}")
-        self.abas_busca.currentChanged.connect(self._aba_busca_mudou)
-        cab_busca.addWidget(self.abas_busca)
+        self.abas_busca.hide()
         cab_busca.addStretch(1)
         self.btn_editar_busca = QPushButton("Recolher campos ↑")
         self.btn_editar_busca.setObjectName("fantasma")
         self.btn_editar_busca.clicked.connect(self._alternar_campos_busca)
         cab_busca.addWidget(self.btn_editar_busca)
-        raiz.addLayout(cab_busca)
+        corpo.addLayout(cab_busca)
 
         self.paineis_busca = QStackedWidget()
         pagina_simples = QWidget()
@@ -129,16 +136,10 @@ class SearchPage(QWidget):
         self.campo_varias.setPlaceholderText("Primeira música, artista ou link…")
         self.campo_varias.returnPressed.connect(self.pesquisar)
         painel_layout.addWidget(self.campo_varias)
-        area_campos = QScrollArea()
-        area_campos.setWidgetResizable(True)
-        area_campos.setMaximumHeight(100)
-        area_campos.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        campos_widget = QWidget()
-        self.lista_campos = QVBoxLayout(campos_widget)
+        self.lista_campos = QVBoxLayout()
         self.lista_campos.setContentsMargins(0, 0, 0, 0)
         self.lista_campos.setSpacing(4)
-        area_campos.setWidget(campos_widget)
-        painel_layout.addWidget(area_campos)
+        painel_layout.addLayout(self.lista_campos)
         acoes_varias = QHBoxLayout()
         self.btn_mais_campo = QPushButton("+ Adicionar música")
         self.btn_mais_campo.setObjectName("fantasma")
@@ -151,7 +152,12 @@ class SearchPage(QWidget):
         acoes_varias.addWidget(self.btn_buscar_varias)
         painel_layout.addLayout(acoes_varias)
         self.paineis_busca.addWidget(self.painel_varias)
-        raiz.addWidget(self.paineis_busca)
+        corpo.addWidget(self.paineis_busca)
+        if modo == 'varias':
+            self.abas_busca.setCurrentIndex(1)
+            self.paineis_busca.setCurrentIndex(1)
+            self._adicionar_campo()
+        self.abas_busca.currentChanged.connect(self._aba_busca_mudou)
 
         # ------------------------------------------------- aviso do yt-dlp
         self.aviso_ytdlp = QFrame()
@@ -167,7 +173,7 @@ class SearchPage(QWidget):
         btn_ok.setObjectName("fantasma")
         btn_ok.clicked.connect(self._aceitar_aviso)
         av.addWidget(btn_ok)
-        raiz.addWidget(self.aviso_ytdlp)
+        corpo.addWidget(self.aviso_ytdlp)
         self._atualizar_aviso()
 
         # -------------------------------------------------------- filtros
@@ -201,7 +207,7 @@ class SearchPage(QWidget):
         self.ordem.addItem("Melhor qualidade", "qualidade")
         self.ordem.setFixedWidth(180)
         filtros.addWidget(self.ordem)
-        raiz.addWidget(self.painel_filtros)
+        corpo.addWidget(self.painel_filtros)
 
         # ---- filtro de shows/ao vivo: nada é escondido em silêncio (§3.3) ----
         filtros2 = QHBoxLayout()
@@ -234,35 +240,30 @@ class SearchPage(QWidget):
         self.btn_filtros.setObjectName("fantasma")
         self.btn_filtros.clicked.connect(self._alternar_filtros)
         filtros2.addWidget(self.btn_filtros)
-        raiz.addLayout(filtros2)
+        corpo.addLayout(filtros2)
 
         # --------------------------------------------------------- status
         self.status = QLabel("Digite e pressione Enter para começar.")
         self.status.setObjectName("dim")
-        raiz.addWidget(self.status)
+        corpo.addWidget(self.status)
         self.status_baixados = QLabel("")
         self.status_baixados.setObjectName("dim")
         self.status_baixados.setWordWrap(True)
         self.status_baixados.hide()
-        raiz.addWidget(self.status_baixados)
+        corpo.addWidget(self.status_baixados)
         self.barra = QProgressBar()
         self.barra.setRange(0, 100)
         self.barra.setValue(0)
         self.barra.setTextVisible(False)
         self.barra.setVisible(False)
-        raiz.addWidget(self.barra)
+        corpo.addWidget(self.barra)
 
         # ------------------------------------------------------ resultados
-        self.area = QScrollArea()
-        self.area.setWidgetResizable(True)
-        self.area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        conteudo = QWidget()
-        self.lista = QVBoxLayout(conteudo)
-        self.lista.setContentsMargins(0, 2, 6, 8)
+        self.lista = QVBoxLayout()
+        self.lista.setContentsMargins(0, 2, 0, 8)
         self.lista.setSpacing(10)
         self.lista.addStretch(1)
-        self.area.setWidget(conteudo)
-        raiz.addWidget(self.area, 1)
+        corpo.addLayout(self.lista, 1)
 
         self.vazio = QLabel(self._texto_vazio())
         self.vazio.setAlignment(Qt.AlignCenter)
@@ -308,7 +309,10 @@ class SearchPage(QWidget):
         # sobreposição de pré-visualização (cobre a página enquanto aberta)
         self.previa = PreviewOverlay(self)
         self.previa.setVisible(False)
-        self._recuperar_marcacoes()
+        if marcados_compartilhados is None:
+            self._recuperar_marcacoes()
+        else:
+            self._atualizar_lote()
 
     # ------------------------------------------------------------------ avisos
     def _atualizar_aviso(self) -> None:
@@ -667,7 +671,7 @@ class SearchPage(QWidget):
             ao_erro=lambda msg: self._baixados_falharam(geracao, msg))
 
     def _baixados_prontos(self, geracao: int, resultados: List[TrackResult], dados: dict) -> None:
-        if geracao != self._geracao_baixados:
+        if self._encerrando or geracao != self._geracao_baixados:
             return
         matches = dados.get("correspondencias") or []
         for resultado, achado in zip(resultados, matches):
@@ -687,7 +691,7 @@ class SearchPage(QWidget):
         self.status_baixados.setText(texto)
 
     def _baixados_falharam(self, geracao: int, mensagem: str) -> None:
-        if geracao != self._geracao_baixados:
+        if self._encerrando or geracao != self._geracao_baixados:
             return
         self.status_baixados.setText("Não foi possível verificar os MP3s locais.")
         self.status_baixados.setToolTip(mensagem)
@@ -836,7 +840,7 @@ class SearchPage(QWidget):
             kwargs = {}
             if card.resultado.fonte == 'ytdlp':
                 kwargs['ao_parcial'] = lambda r, c=card, t=token: self.formato_parcial.emit(c, t, r)
-            EXECUTOR_GLOBAL.rodar(
+            EXECUTOR_FORMATOS.rodar(
                 fonte.detalhar, consulta, **kwargs,
                 ao_resultado=lambda r, c=card: self._detalhe_pronto(c, r),
                 ao_erro=lambda m, c=card: self._detalhe_falhou(c, m),
@@ -844,7 +848,7 @@ class SearchPage(QWidget):
         self._status_verificacao()
 
     def _receber_formato_parcial(self, card: ResultCard, token, resultado: TrackResult) -> None:
-        if card not in self.cards or getattr(card, '_token_verificacao', None) is not token:
+        if self._encerrando or card not in self.cards or getattr(card, '_token_verificacao', None) is not token:
             return
         self._aplicar_detalhe(card, resultado)
 
@@ -921,6 +925,8 @@ class SearchPage(QWidget):
 
     def _detalhe_pronto(self, card: ResultCard, resultado: TrackResult) -> None:
         self._verif_ativas = max(0, self._verif_ativas - 1)
+        if self._encerrando:
+            return
         if card not in self.cards:
             self._verificar_proximo()
             return
@@ -935,6 +941,8 @@ class SearchPage(QWidget):
 
     def _detalhe_falhou(self, card: ResultCard, msg: str) -> None:
         self._verif_ativas = max(0, self._verif_ativas - 1)
+        if self._encerrando:
+            return
         if card not in self.cards:
             self._verificar_proximo()
             return
@@ -1080,15 +1088,35 @@ class SearchPage(QWidget):
     def _gravar_marcacoes(self) -> bool:
         if self._erro_estado_inicial:
             self.mensagem.emit("Não é possível salvar: houve falha ao recuperar as marcações anteriores.")
+            self.marcacoes_alteradas.emit()
             return False
         try:
             self.banco.salvar_estado('marcacoes', [estado_musicas.serializar_pedido(p)
                                                     for p in self._marcados.values()])
+            self.marcacoes_alteradas.emit()
             return True
         except Exception as exc:
             self.mensagem.emit(f"Não foi possível salvar as marcações: {exc}")
             self.status.setText("Não foi possível salvar as marcações no computador. Confira o banco de dados.")
+            self.marcacoes_alteradas.emit()
             return False
+
+    def sincronizar_marcacoes(self) -> None:
+        """Atualiza outra tela sem repetir a gravação nem mudar o resultado dela."""
+        for card in self.cards:
+            pedido = self._marcados.get(self._chave_resultado(card.resultado))
+            card.check.blockSignals(True)
+            try:
+                card.check.setChecked(bool(pedido))
+            finally:
+                card.check.blockSignals(False)
+            if pedido and pedido.get('formato'):
+                card.combo.blockSignals(True)
+                try:
+                    self._restaurar_formato(card, pedido['formato'])
+                finally:
+                    card.combo.blockSignals(False)
+        self._atualizar_lote()
 
     def _recuperar_marcacoes(self) -> None:
         try:

@@ -107,3 +107,6 @@ class Executor:
 
 # pool global para tarefas curtas (miniaturas, verificações)
 EXECUTOR_GLOBAL = Executor(6)
+
+# Consultas demoradas de formatos não devem ocupar o pool das pesquisas e downloads.
+EXECUTOR_FORMATOS = Executor(3)

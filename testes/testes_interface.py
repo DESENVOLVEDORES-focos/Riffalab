@@ -37,8 +37,9 @@ class Interface(unittest.TestCase):
         self.app.processEvents()
 
     def tearDown(self):
-        from app.workers import EXECUTOR_GLOBAL
+        from app.workers import EXECUTOR_GLOBAL, EXECUTOR_FORMATOS
         EXECUTOR_GLOBAL.aguardar(30000)
+        EXECUTOR_FORMATOS.aguardar(30000)
         self.app.processEvents()
         from PySide6.QtCore import QCoreApplication, QEvent
         self.janela.close()
@@ -47,49 +48,146 @@ class Interface(unittest.TestCase):
         self.app.processEvents()
         self.temp.cleanup()
 
-    def test_abas_independentes_e_espaco_dos_resultados(self):
+    def test_telas_separadas_e_rolagem_vertical_de_todos_resultados(self):
         from app.models import AudioFormat, TrackResult
         from app.ui.pages import search_page
         self.janela.resize(1080, 680)
-        busca = self.janela.pagina_busca
-        busca.campo.setText('Busca normal guardada')
-        busca.abas_busca.setCurrentIndex(1)
-        busca.campo_varias.setText('Primeira busca')
-        busca.campos_extras[0][1].setText('Segunda busca')
-        self.app.processEvents()
-        antes = busca.area.viewport().height()
+        normal = self.janela.pagina_busca
+        varias = self.janela.pagina_varias
+        self.assertIsNot(normal, varias)
+        self.assertIsNot(normal.area, varias.area)
+        normal.campo.setText('Busca normal guardada')
+        self.janela.botoes['varias'].click()
+        self.assertIs(self.janela.pilha.currentWidget(), varias)
+        varias.campo_varias.setText('Primeira busca')
+        varias.campos_extras[0][1].setText('Segunda busca')
+        for i in range(8):
+            varias._adicionar_campo()
+        from PySide6.QtTest import QTest
+        QTest.qWait(100)  # layout e barra são atualizados de forma assíncrona pelo Qt
+        self.assertGreater(varias.area.verticalScrollBar().maximum(), 0)
+        self.assertGreaterEqual(varias.area.viewport().height(), 450)
         respostas = []
         for nome in ('Primeira busca', 'Segunda busca'):
             resultados = [TrackResult(nome + str(i), 'ytdlp', f'Música {i}', 'Artista',
                            formatos=[AudioFormat(codec='opus', bitrate_kbps=128, format_id='251')],
                            extra={'metodos_consulta':[{'nome':'JSON', 'estado':'ok', 'quantidade':1}]})
-                          for i in range(4)]
+                          for i in range(5)]
             respostas.append({'consulta':nome, 'resultados':resultados, 'filtrados':[],
                               'fontes':[], 'segundos':0, 'erros':{}})
         def executar(fn, *args, **kwargs):
             if fn is search_page.pesquisar_varias:
                 kwargs['ao_resultado'](respostas)
-        with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
+        with patch.object(varias._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
              patch.object(search_page.EXECUTOR_GLOBAL, 'rodar', side_effect=executar):
-            busca.btn_buscar_varias.click()
+            varias.btn_buscar_varias.click()
+        QTest.qWait(100)
+        self.assertTrue(varias.paineis_busca.isHidden())
+        self.assertEqual(len(varias.cards), 10)
+        self.assertGreater(varias.area.verticalScrollBar().maximum(), 0)
+        varias.area.verticalScrollBar().setValue(varias.area.verticalScrollBar().maximum())
         self.app.processEvents()
-        depois = busca.area.viewport().height()
-        self.assertTrue(busca.paineis_busca.isHidden())
-        self.assertGreater(depois, antes + 100)
-        self.assertGreaterEqual(depois, 320)
-        self.assertEqual(len(busca.cards), 8)
-        self.assertGreater(busca.area.verticalScrollBar().maximum(), 0)
-        busca.area.verticalScrollBar().setValue(busca.area.verticalScrollBar().maximum())
-        self.app.processEvents()
-        ultimo = busca.cards[-1].mapTo(busca.area.viewport(), busca.cards[-1].rect().center())
+        ultimo = varias.cards[-1].mapTo(varias.area.viewport(), varias.cards[-1].rect().center())
         self.assertGreaterEqual(ultimo.y(), 0)
-        self.assertLess(ultimo.y(), busca.area.viewport().height())
-        busca.btn_editar_busca.click()
-        self.assertEqual(busca.campo_varias.text(), 'Primeira busca')
-        self.assertEqual(busca.campos_extras[0][1].text(), 'Segunda busca')
-        busca.abas_busca.setCurrentIndex(0)
-        self.assertEqual(busca.campo.text(), 'Busca normal guardada')
-        self.assertFalse(busca.paineis_busca.isHidden())
+        self.assertLess(ultimo.y(), varias.area.viewport().height())
+        self.assertEqual(len(normal.cards), 0)
+        self.janela.botoes['buscar'].click()
+        self.assertIs(self.janela.pilha.currentWidget(), normal)
+        self.assertEqual(normal.campo.text(), 'Busca normal guardada')
+        self.janela.botoes['varias'].click()
+        self.assertEqual(len(varias.cards), 10)
+        self.assertEqual(varias.campo_varias.text(), 'Primeira busca')
+        self.assertEqual(varias.campos_extras[0][1].text(), 'Segunda busca')
+
+    def test_marcacoes_e_formatos_sincronizados_entre_as_telas(self):
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        normal, varias = self.janela.pagina_busca, self.janela.pagina_varias
+        fmts = [AudioFormat(codec='opus', bitrate_kbps=150, format_id='251'),
+                AudioFormat(codec='aac', bitrate_kbps=120, format_id='140')]
+        def dados():
+            return {'resultados':[TrackResult('x','ytdlp','Música','Artista',formatos=fmts)],
+                    'filtrados':[], 'consulta':'Música', 'fontes':[], 'segundos':0, 'erros':{}}
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
+            normal._mostrar(dados())
+            varias._mostrar(dados())
+        c1, c2 = normal.cards[0], varias.cards[0]
+        c1.check.setChecked(True)
+        self.assertTrue(c2.check.isChecked())
+        indice = next(i for i in range(c2.combo.count()) if c2.combo.itemData(i).format_id == '140')
+        c2.combo.setCurrentIndex(indice)
+        self.assertEqual(c1.combo.currentData().format_id, '140')
+        self.assertIn('(1)', normal.btn_lote.text())
+        self.assertIn('(1)', varias.btn_lote.text())
+        self.assertEqual(self.banco.ler_estado('marcacoes')[0]['formato']['format_id'], '140')
+        with patch.object(varias, '_transferir', return_value=True):
+            varias._processar_lote()
+        self.assertFalse(c1.check.isChecked())
+        self.assertFalse(c2.check.isChecked())
+        self.assertEqual(normal._marcados, {})
+
+    def test_pesquisas_multiplas_formatos_yt_dlp_real_http_local(self):
+        # Pesquisa simulada, mas extração de formatos usa processos reais yt-dlp
+        # contra áudio gerado localmente, sem consultar o YouTube.
+        import functools, shutil, threading, time, wave
+        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+        from app import search_service
+        from app.models import TrackResult
+        if not shutil.which('yt-dlp'):
+            self.skipTest('yt-dlp não instalado para teste local')
+        for nome in ('primeira.wav', 'segunda.wav'):
+            with wave.open(str(self.base / nome), 'wb') as audio:
+                audio.setnchannels(1); audio.setsampwidth(2); audio.setframerate(8000)
+                audio.writeframes(b'\0\0' * 8000)
+        class Handler(SimpleHTTPRequestHandler):
+            def log_message(self, *args): pass
+        servidor = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(self.base)))
+        thread = threading.Thread(target=servidor.serve_forever, daemon=True); thread.start()
+        busca = self.janela.pagina_varias
+        self.janela.ir_para('varias')
+        busca.campo_varias.setText('primeira'); busca.campos_extras[0][1].setText('segunda')
+        def pesquisar_fake(termo, *args, **kwargs):
+            url = f'http://127.0.0.1:{servidor.server_port}/{termo}.wav'
+            r = TrackResult(termo, 'ytdlp', termo, 'Artista', pagina_url=url)
+            return {'consulta':termo, 'resultados':[r], 'filtrados':[], 'fontes':[], 'segundos':0, 'erros':{}}
+        try:
+            with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
+                 patch.object(search_service, 'pesquisar', side_effect=pesquisar_fake), \
+                 patch.object(busca, '_conferir_baixados'):
+                busca.pesquisar()
+                prazo = time.monotonic() + 25
+                while (busca._buscando or len(busca.cards) < 2 or busca._verif_ativas or busca._fila_verif) and time.monotonic() < prazo:
+                    self.app.processEvents(); time.sleep(.02)
+                self.assertFalse(busca._buscando)
+                self.assertEqual(len(busca.cards), 2)
+                self.assertFalse(busca._verif_ativas)
+                for card in busca.cards:
+                    self.assertTrue(card.resultado.formatos, card.resultado.extra)
+                    self.assertTrue(card.combo.currentData().format_id)
+                    self.assertEqual(len(card.resultado.extra['metodos_consulta']), 4)
+                    self.assertTrue(any(m['estado'] == 'ok' for m in card.resultado.extra['metodos_consulta']))
+        finally:
+            servidor.shutdown(); servidor.server_close(); thread.join(3)
+
+    def test_consultas_de_formatos_nao_ocupam_pool_de_pesquisa(self):
+        import threading, time
+        from app.workers import EXECUTOR_GLOBAL, EXECUTOR_FORMATOS
+        liberar = threading.Event(); comecaram = threading.Event(); resposta = []
+        contador = []
+        def tarefa_lenta():
+            contador.append(1)
+            if len(contador) == 3: comecaram.set()
+            liberar.wait(5)
+        try:
+            for _ in range(3): EXECUTOR_FORMATOS.rodar(tarefa_lenta)
+            self.assertTrue(comecaram.wait(3))
+            EXECUTOR_GLOBAL.rodar(lambda: 'pesquisa terminou', ao_resultado=resposta.append)
+            prazo = time.monotonic() + 2
+            while not resposta and time.monotonic() < prazo:
+                self.app.processEvents(); time.sleep(.01)
+            self.assertEqual(resposta, ['pesquisa terminou'])
+        finally:
+            liberar.set()
 
     def test_formato_parcial_disponivel_e_escolha_preservada_ate_fim(self):
         import threading, time
@@ -433,8 +531,8 @@ class Interface(unittest.TestCase):
     def test_pesquisa_multipla_campos_grupos_filtro_e_selecao(self):
         from app.models import AudioFormat, TrackResult
         from app.ui.pages import search_page
-        busca = self.janela.pagina_busca
-        busca.abas_busca.setCurrentIndex(1)
+        busca = self.janela.pagina_varias
+        self.janela.ir_para('varias')
         busca.campo_varias.setText("Guns")
         busca.campos_extras[0][1].setText("Pink Floyd")
         busca.btn_mais_campo.click()
@@ -456,7 +554,7 @@ class Interface(unittest.TestCase):
                 kwargs['ao_resultado'](retornos)
         with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
              patch.object(search_page.EXECUTOR_GLOBAL, 'rodar', side_effect=rodar):
-            busca.btn_buscar.click()
+            busca.btn_buscar_varias.click()
             self.assertEqual(chamadas[0][1][0], ['Guns', 'Pink Floyd', 'Led Zeppelin'])
             self.assertEqual([g['consulta'] for g in busca._grupos_busca], ['Guns', 'Pink Floyd', 'Led Zeppelin'])
             self.assertEqual(busca._grupos_busca[0]['cards'][0].resultado.uid, 'a')
@@ -486,7 +584,8 @@ class Interface(unittest.TestCase):
     def test_pesquisa_multipla_videos_repetidos_sincronizados(self):
         from app.models import AudioFormat, TrackResult
         from app.ui.pages import search_page
-        busca = self.janela.pagina_busca
+        busca = self.janela.pagina_varias
+        self.janela.ir_para('varias')
         formatos = [AudioFormat(codec='opus', bitrate_kbps=150, format_id='251'),
                     AudioFormat(codec='aac', bitrate_kbps=120, format_id='140')]
         a = TrackResult('id', 'ytdlp', 'Música', 'Artista', formatos=formatos)
@@ -510,8 +609,8 @@ class Interface(unittest.TestCase):
         import time
         from app import search_service
         from app.models import AudioFormat, TrackResult
-        busca = self.janela.pagina_busca
-        busca.abas_busca.setCurrentIndex(1)
+        busca = self.janela.pagina_varias
+        self.janela.ir_para('varias')
         busca.campo_varias.setText('Guns')
         busca.campos_extras[0][1].setText('Pink Floyd')
         def pesquisar_fake(termo, *args, **kwargs):
@@ -537,8 +636,8 @@ class Interface(unittest.TestCase):
 
     def test_campos_multiplos_remocao_modo_simples_e_primeiro_vazio(self):
         from app.ui.pages import search_page
-        busca = self.janela.pagina_busca
-        busca.abas_busca.setCurrentIndex(1)
+        busca = self.janela.pagina_varias
+        self.janela.ir_para('varias')
         busca.campos_extras[0][1].setText('Somente este')
         busca.btn_mais_campo.click()
         w = busca.campos_extras[-1][0]
@@ -551,7 +650,8 @@ class Interface(unittest.TestCase):
         self.assertIs(chamadas[0][0], search_page.pesquisar)
         self.assertEqual(chamadas[0][1][0], 'Somente este')
         busca._erro('teste')
-        busca.abas_busca.setCurrentIndex(0)
+        busca = self.janela.pagina_busca
+        self.janela.ir_para('buscar')
         busca.campo.setText('Busca simples')
         chamadas.clear()
         with patch.object(busca._fontes_obj['ytdlp'], 'disponivel', return_value=(True, '')), \
@@ -585,10 +685,26 @@ class Interface(unittest.TestCase):
         self.janela.show()
         self.app.processEvents()
         self.assertEqual(len(self.janela.pagina_busca._marcados), 1)
+        self.assertIs(self.janela.pagina_busca._marcados, self.janela.pagina_varias._marcados)
+        self.assertIn('(1)', self.janela.pagina_varias.btn_lote.text())
         self.assertEqual(self.banco.nomes_listas(), ['Favoritas'])
         self.assertEqual(len(self.janela.pagina_downloads.selecoes), 1)
         self.assertEqual(self.janela.pagina_downloads.selecoes[0].pedido['resultado'].uid, '2')
         self.assertFalse(self.janela.fila.jobs)
+
+    def test_resultados_tardios_ignorados_ao_fechar_as_duas_telas(self):
+        from app.models import TrackResult
+        for busca in (self.janela.pagina_busca, self.janela.pagina_varias):
+            busca._encerrando = True
+            r = TrackResult('1', 'ytdlp', 'Uma')
+            with patch.object(busca, '_aplicar_detalhe') as aplicar, \
+                 patch.object(busca, '_verificar_proximo') as proximo:
+                busca._receber_formato_parcial(object(), object(), r)
+                busca._detalhe_pronto(object(), r)
+                busca._detalhe_falhou(object(), 'erro')
+                busca._baixados_prontos(busca._geracao_baixados, [], {})
+                busca._baixados_falharam(busca._geracao_baixados, 'erro')
+                aplicar.assert_not_called(); proximo.assert_not_called()
 
     def test_estado_corrompido_nao_e_sobrescrito_na_inicializacao(self):
         from app.ui.pages.search_page import SearchPage
@@ -789,8 +905,8 @@ class Interface(unittest.TestCase):
         import threading, time
         from app import search_service
         from app.models import AudioFormat, TrackResult
-        busca = self.janela.pagina_busca
-        busca.abas_busca.setCurrentIndex(1)
+        busca = self.janela.pagina_varias
+        self.janela.ir_para('varias')
         busca.campo_varias.setText('Lenta')
         busca.campos_extras[0][1].setText('Rápida')
         liberar = threading.Event()

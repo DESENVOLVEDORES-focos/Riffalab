@@ -22,9 +22,10 @@ from .widgets.images import CarregadorImagens
 from .widgets.toast import Toast
 
 PAGINAS = [
-    ("buscar", "Pesquisar", "1"),
-    ("downloads", "Downloads", "2"),
-    ("config", "Configurações", "3"),
+    ("buscar", "Pesquisa normal", "1"),
+    ("varias", "Várias músicas", "2"),
+    ("downloads", "Downloads", "3"),
+    ("config", "Configurações", "4"),
 ]
 
 
@@ -33,7 +34,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = config
         self.banco = banco
-        self.setWindowTitle(f"{APP_NOME} — {APP_SUB}")
+        self.setWindowTitle(f"{APP_NOME} v{APP_VERSAO} — {APP_SUB}")
         self.resize(1360, 880)
         self.setMinimumSize(1080, 680)
 
@@ -80,6 +81,9 @@ class MainWindow(QMainWindow):
             col.addWidget(btn)
 
         col.addStretch(1)
+        versao = QLabel(f"Versão {APP_VERSAO}")
+        versao.setStyleSheet(f"color: {PALETA['texto']}; font-size: 13px; padding: 4px 20px;")
+        col.addWidget(versao)
 
         self.lbl_rodape = QLabel()
         self.lbl_rodape.setWordWrap(True)
@@ -95,12 +99,16 @@ class MainWindow(QMainWindow):
         self.carregador = CarregadorImagens(self)
         self.fila = GerenciadorFila(config, banco, self)
 
-        self.pagina_busca = SearchPage(config, banco, self.carregador)
+        self.pagina_busca = SearchPage(config, banco, self.carregador, modo='normal')
+        self.pagina_varias = SearchPage(config, banco, self.carregador, modo='varias',
+                                         marcados_compartilhados=self.pagina_busca._marcados,
+                                         erro_compartilhado=self.pagina_busca._erro_estado_inicial)
         self.pagina_downloads = DownloadsPage(config, self.fila)
         self.pagina_config = SettingsPage(config)
 
         self.paginas = {
             "buscar": self.pagina_busca,
+            "varias": self.pagina_varias,
             "downloads": self.pagina_downloads,
             "config": self.pagina_config,
         }
@@ -110,13 +118,16 @@ class MainWindow(QMainWindow):
         self.toast = Toast(central)
 
         # --------------------------------------------------------- ligações
-        self.pagina_busca.transferir_pedido = self.enfileirar
-        self.pagina_busca.abrir_downloads.connect(lambda: self.ir_para('downloads'))
-        self.pagina_busca.mensagem.connect(self.toast.mostrar)
+        for pagina in (self.pagina_busca, self.pagina_varias):
+            pagina.transferir_pedido = self.enfileirar
+            pagina.abrir_downloads.connect(lambda: self.ir_para('downloads'))
+            pagina.mensagem.connect(self.toast.mostrar)
+            self.pagina_config.ferramentas_verificadas.connect(pagina.atualizar_ferramentas)
+        self.pagina_busca.marcacoes_alteradas.connect(self.pagina_varias.sincronizar_marcacoes)
+        self.pagina_varias.marcacoes_alteradas.connect(self.pagina_busca.sincronizar_marcacoes)
         self.pagina_downloads.mensagem.connect(self.toast.mostrar)
         self.pagina_config.mensagem.connect(self.toast.mostrar)
         self.pagina_config.config_alterada.connect(self._config_mudou)
-        self.pagina_config.ferramentas_verificadas.connect(self.pagina_busca.atualizar_ferramentas)
         self.fila.mensagem.connect(self._ao_processar)
         self.fila.job_adicionado.connect(lambda _j: self._sincronizar_contador())
         self.fila.job_atualizado.connect(lambda _j: self._sincronizar_contador())
@@ -148,6 +159,8 @@ class MainWindow(QMainWindow):
         if not pagina:
             return
         self.pilha.setCurrentWidget(pagina)
+        if chave in ('buscar', 'varias'):
+            pagina._atualizar_aviso()
         if chave in self.botoes:
             self.botoes[chave].setChecked(True)
 
@@ -176,6 +189,7 @@ class MainWindow(QMainWindow):
     def _config_mudou(self) -> None:
         self._atualizar_rodape()
         self.pagina_busca._atualizar_aviso()
+        self.pagina_varias._atualizar_aviso()
         self.toast.mostrar("Configurações aplicadas.")
 
     def _sincronizar_contador(self, *_args) -> None:
@@ -231,8 +245,10 @@ class MainWindow(QMainWindow):
                 return
         # Ignora respostas de pesquisas que acabem depois da janela fechar.
         self.fila.encerrar()
-        self.pagina_busca._geracao_busca += 1
-        self.pagina_busca._buscando = False
+        for pagina in (self.pagina_busca, self.pagina_varias):
+            pagina._encerrando = True
+            pagina._geracao_busca += 1
+            pagina._buscando = False
         self.pagina_downloads._a_preparar.clear()
         self.pagina_downloads._preparando = False
         try:

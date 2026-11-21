@@ -451,7 +451,7 @@ class ResultCard(QFrame):
         self._preencher_barra()
         self._preencher_formatos()
         if hasattr(self, "btn_verificar"):
-            if resultado.formatos:
+            if resultado.formatos and not resultado.extra.get('erro_detalhe'):
                 self.btn_verificar.setVisible(False)
             else:
                 # falhou de novo: deixa o usuário tentar outra vez, com o motivo

@@ -438,7 +438,8 @@ class DownloadsPage(QWidget):
             self._proxima_capa()
             return
         dialogo = DialogoCapas(self, capa, {'titulo': meta.titulo, 'artista': meta.artista,
-                                            'album': meta.album, 'ano': meta.ano})
+                                            'album': meta.album, 'ano': meta.ano,
+                                            'fontes_capa': self.config.get('fontes_capa')})
         if dialogo.exec() != QDialog.Accepted:
             self._cancelar_preparacao()
             return

@@ -12,8 +12,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List
 
-# Evita multiplicar o número de conexões sem limite quando há muitos cartões.
-_LIMITE = threading.BoundedSemaphore(4)
+# Consultas usam processos externos pesados. Compartilhar apenas dois em todo
+# o aplicativo reduz a carga ao navegar e usar a prévia em listas grandes.
+_LIMITE = threading.BoundedSemaphore(2)
 NOMES = ('Lista -F', 'JSON -j', 'Lista + JSON', 'Biblioteca Python')
 
 

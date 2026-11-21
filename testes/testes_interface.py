@@ -189,6 +189,78 @@ class Interface(unittest.TestCase):
         finally:
             liberar.set()
 
+    def test_previa_nao_redesenha_os_cartoes_e_aplica_resultado_mais_recente_ao_fechar(self):
+        import time
+        from app.models import AudioFormat, TrackResult
+        from app.ui.widgets import preview_widget
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_varias
+        self.janela.ir_para('varias')
+        r = TrackResult('id', 'ytdlp', 'Música', 'Artista', pagina_url='https://youtube.com/watch?v=123')
+        dados = {'resultados':[r], 'filtrados':[], 'consulta':'Música', 'fontes':[], 'segundos':0, 'erros':{}}
+        with patch.object(search_page.EXECUTOR_FORMATOS, 'rodar'), \
+             patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'), \
+             patch.object(preview_widget, 'webengine_disponivel', return_value=False):
+            busca._mostrar(dados)
+            card = busca.cards[0]
+            card.check.setChecked(True)
+            busca.previa.mostrar(r)
+            parcial = TrackResult('id', 'ytdlp', 'Música', 'Artista',
+                      formatos=[AudioFormat(codec='opus', format_id='251')])
+            final = TrackResult('id', 'ytdlp', 'Música', 'Artista',
+                      formatos=[AudioFormat(codec='aac', format_id='140')])
+            busca._aplicar_detalhe(card, parcial)
+            busca._aplicar_detalhe(card, final)
+            self.assertFalse(card.resultado.formatos)
+            self.assertIs(busca._detalhes_adiados[card], final)
+            self.assertTrue(card.check.isChecked())
+            busca.previa.fechar()
+            prazo = time.monotonic() + 2
+            while busca._detalhes_adiados and time.monotonic() < prazo:
+                self.app.processEvents(); time.sleep(.01)
+            self.assertFalse(busca._detalhes_adiados)
+            self.assertEqual(card.resultado.formatos[0].format_id, '140')
+            self.assertTrue(card.check.isChecked())
+            self.assertEqual(len(busca._marcados), 1)
+
+    def test_formato_em_selecao_nao_e_atualizado_ate_fechar_lista(self):
+        import time
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        antigo = TrackResult('id','ytdlp','Música',formatos=[AudioFormat(codec='opus',format_id='251')],
+                            extra={'metodos_consulta':[{'estado':'ok'}]})
+        novo = TrackResult('id','ytdlp','Música',formatos=[AudioFormat(codec='aac',format_id='140')])
+        with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'), patch.object(search_page.EXECUTOR_FORMATOS, 'rodar'):
+            busca._mostrar({'resultados':[antigo], 'filtrados':[], 'consulta':'x', 'fontes':[], 'segundos':0, 'erros':{}})
+            card = busca.cards[0]
+            with patch.object(card.combo.view(), 'isVisible', return_value=True):
+                busca._aplicar_detalhe(card, novo)
+                busca._drenar_detalhes_adiados()
+                self.assertEqual(card.resultado.formatos[0].format_id, '251')
+                self.assertIn(card, busca._detalhes_adiados)
+            prazo = time.monotonic() + 2
+            while busca._detalhes_adiados and time.monotonic() < prazo:
+                self.app.processEvents(); time.sleep(.01)
+            self.assertEqual(card.resultado.formatos[0].format_id, '140')
+
+    def test_fontes_ativas_de_capa_sao_visiveis_e_busca_manual_pede_single(self):
+        from app.models import CoverResult
+        from app.ui.dialogos import DialogoCapas
+        from PySide6.QtGui import QDesktopServices
+        musica = {'titulo':'Paradise City', 'artista':'Guns N Roses', 'album':'Appetite',
+                  'fontes_capa':['coverartarchive', 'itunes', 'deezer']}
+        dialogo = DialogoCapas(self.janela, CoverResult(), musica)
+        self.assertIn('Deezer', dialogo.lbl_fontes.text())
+        self.assertIn('Apple', dialogo.lbl_fontes.text())
+        self.assertIn('Cover Art Archive', dialogo.lbl_fontes.text())
+        with patch.object(QDesktopServices, 'openUrl') as abrir:
+            dialogo._pesquisar_google()
+        url = abrir.call_args.args[0].toString().lower()
+        self.assertIn('single', url)
+        self.assertNotIn('appetite', url)
+        dialogo.deleteLater()
+
     def test_formato_parcial_disponivel_e_escolha_preservada_ate_fim(self):
         import threading, time
         from copy import deepcopy

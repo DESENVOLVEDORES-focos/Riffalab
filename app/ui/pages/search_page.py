@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
                                QInputDialog, QMessageBox, QLineEdit, QProgressBar, QPushButton, QScrollArea,
                                QSizePolicy, QSpinBox, QStackedWidget, QTabBar, QVBoxLayout, QWidget)
@@ -68,6 +68,12 @@ class SearchPage(QWidget):
         self._mostrando_filtrados = False
         self._grupos_busca: list[dict] = []
         self.campos_extras: list[tuple[QWidget, QLineEdit]] = []
+        # Enquanto o player está aberto, reter apenas a última atualização de
+        # cada cartão para não redesenhar a lista por baixo do vídeo.
+        self._detalhes_adiados: dict[ResultCard, TrackResult] = {}
+        self._timer_detalhes = QTimer(self)
+        self._timer_detalhes.setInterval(60)
+        self._timer_detalhes.timeout.connect(self._drenar_detalhes_adiados)
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(18, 14, 18, 10)
@@ -309,6 +315,7 @@ class SearchPage(QWidget):
         # sobreposição de pré-visualização (cobre a página enquanto aberta)
         self.previa = PreviewOverlay(self)
         self.previa.setVisible(False)
+        self.previa.fechado.connect(self._aplicar_detalhes_adiados)
         if marcados_compartilhados is None:
             self._recuperar_marcacoes()
         else:
@@ -771,6 +778,7 @@ class SearchPage(QWidget):
             self.previa.setGeometry(self.rect())
 
     def _limpar(self) -> None:
+        self._detalhes_adiados.clear()
         self._geracao_baixados += 1
         self.status_baixados.clear()
         self.status_baixados.hide()
@@ -861,7 +869,10 @@ class SearchPage(QWidget):
         base = getattr(self, "_status_base", None)
         if not base:
             return
-        if self.ordem.currentData() == "qualidade":
+        # Não mover cartões enquanto o usuário está assistindo à prévia ou
+        # enquanto ainda há seções chegando na pesquisa múltipla.
+        if (self.ordem.currentData() == "qualidade" and not self._buscando
+                and not self.previa.isVisible() and not self._detalhes_adiados):
             from ...quality import pontuar
             # A pesquisa aparece imediatamente; reorganizar só quando as
             # consultas terminam, sem recriar cartões nem perder a seleção.
@@ -903,7 +914,34 @@ class SearchPage(QWidget):
         from ...sources import por_id
         return por_id(fid, self.config)
 
+    def _aplicar_detalhes_adiados(self) -> None:
+        if not self._encerrando and self._detalhes_adiados:
+            self._timer_detalhes.start()
+        elif not self._encerrando:
+            self._status_verificacao()
+
+    def _drenar_detalhes_adiados(self) -> None:
+        if self._encerrando or self.previa.isVisible():
+            self._timer_detalhes.stop()
+            return
+        # Pequenos lotes devolvem controle à interface entre redesenhos.
+        for card in list(self._detalhes_adiados)[:4]:
+            resultado = self._detalhes_adiados.pop(card)
+            if card in self.cards:
+                self._aplicar_detalhe(card, resultado)
+        if not self._detalhes_adiados:
+            self._timer_detalhes.stop()
+            self._status_verificacao()
+
     def _aplicar_detalhe(self, card: ResultCard, resultado: TrackResult) -> None:
+        if self.previa.isVisible() or card.combo.view().isVisible():
+            self._detalhes_adiados[card] = resultado
+            if not self.previa.isVisible() and not self._timer_detalhes.isActive():
+                self._timer_detalhes.start()
+            return
+        # Uma resposta nova substitui também qualquer resposta mais antiga
+        # ainda aguardando na fila de atualizações visuais.
+        self._detalhes_adiados.pop(card, None)
         from ...pesquisa import filtros
         analise = filtros.analisar(resultado)
         resultado.ao_vivo = analise.ao_vivo
@@ -947,6 +985,20 @@ class SearchPage(QWidget):
             self._verificar_proximo()
             return
         card._token_verificacao = None
+        if self.previa.isVisible():
+            from copy import deepcopy
+            resultado = deepcopy(self._detalhes_adiados.get(card, card.resultado))
+            resultado.extra.pop('consulta_em_andamento', None)
+            for metodo in resultado.extra.get('metodos_consulta') or []:
+                if metodo.get('estado') == 'consultando':
+                    metodo.update(estado='falhou', motivo='consulta interrompida')
+            resultado.extra['erro_detalhe'] = 'Falha ao consultar formatos; tente novamente.'
+            self._detalhes_adiados[card] = resultado
+            if not resultado.formatos:
+                self._falhas_total += 1
+                self._falhas_verif.append(resultado.extra['erro_detalhe'])
+            self._verificar_proximo()
+            return
         try:
             card.resultado.extra.pop('consulta_em_andamento', None)
             for metodo in card.resultado.extra.get('metodos_consulta') or []:

@@ -93,12 +93,16 @@ def candidatos_capa(
         exigir_quadrada=exigir_quadrada)
 
     if not aprovadas:
-        if not artista and not album:
-            motivo = ("artista e álbum não confirmados: capa não aplicada para não "
-                      "pegar a capa de outra música com o mesmo nome")
+        if not titulo or not artista:
+            motivo = ("É preciso informar título e artista para procurar capa de single. "
+                      "Em Downloads, use Editar dados e tente novamente.")
+        elif not _padrao_fontes(fontes):
+            motivo = ("Nenhuma fonte de capa está ativada. Ative fontes em Configurações "
+                      "ou escolha uma imagem salva.")
         else:
-            motivo = ("Nenhuma capa de single identificada com confiança. "
-                      "Não substituímos pela capa de álbum; escolha imagem manualmente ou siga sem capa.")
+            motivo = ("Nenhuma capa de single identificada com confiança. Os serviços podem "
+                      "não responder ou não ter um single reconhecido. Não usamos capa de álbum "
+                      "como substituta; escolha uma imagem salva ou siga sem capa.")
         return CoverResult(observacao=motivo), []
 
     resultados = [a.como_cover_result() for a in aprovadas]

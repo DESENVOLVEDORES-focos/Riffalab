@@ -6,6 +6,6 @@ Esta atualização inclui os arquivos atuais do aplicativo e pode ser aplicada s
 2. Faça backup de `rifflab.db` e `config.json` em outra pasta.
 3. Extraia o ZIP em uma pasta temporária e abra a pasta `RiffLab` extraída.
 4. Copie o **conteúdo** dessa pasta para dentro da instalação onde estão `INICIAR.bat` e `main.py`. Mescle as pastas e confirme a substituição dos arquivos. Não apague a instalação.
-5. Abra o `INICIAR.bat` e confira **Versão 0.6.0** no menu à esquerda. Se não aparecer, confira se atualizou a mesma pasta de onde abre o programa. Consulte `PESQUISAR-VARIAS.md` para as duas telas separadas e os detalhes dos formatos.
+5. Abra o `INICIAR.bat` e confira **Versão 0.6.1** no menu à esquerda. Se não aparecer, confira se atualizou a mesma pasta de onde abre o programa. Consulte `PESQUISAR-VARIAS.md` para as duas telas separadas e os detalhes dos formatos.
 
 A verificação da atualização foi feita em Linux com interface Qt offscreen, serviços simulados e áudio/yt-dlp local. Não houve teste no Windows nem acesso real ao YouTube nesta sessão. Se os formatos ainda não aparecerem, clique em **ver detalhes** no cartão e informe os nomes e mensagens dos métodos, sem enviar cookies, chaves ou dados privados.

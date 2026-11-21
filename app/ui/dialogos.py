@@ -173,6 +173,16 @@ class DialogoCapas(QDialog):
         titulo = QLabel("Esta é a capa que será gravada no MP3?")
         titulo.setStyleSheet("font-size: 17px; font-weight: 800;")
         fora.addWidget(titulo)
+        if 'fontes_capa' in self.musica:
+            nomes = {'coverartarchive': 'MusicBrainz / Cover Art Archive',
+                     'itunes': 'Apple / iTunes', 'deezer': 'Deezer'}
+            fontes = self.musica.get('fontes_capa') or []
+            texto_fontes = ', '.join(nomes.get(f, str(f)) for f in fontes) or 'nenhuma'
+            self.lbl_fontes = QLabel('Fontes ativadas: ' + texto_fontes +
+                '. A imagem exibida pode vir de apenas uma delas; as outras podem não ter retornado uma opção.')
+            self.lbl_fontes.setWordWrap(True)
+            self.lbl_fontes.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 11px;")
+            fora.addWidget(self.lbl_fontes)
 
         corpo = QHBoxLayout()
         corpo.setSpacing(16)
@@ -334,8 +344,8 @@ class DialogoCapas(QDialog):
         from urllib.parse import urlencode
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
-        termo = " ".join(str(self.musica.get(k) or "") for k in ("artista", "titulo", "album"))
-        url = "https://www.google.com/search?" + urlencode({"q": termo.strip() + " capa álbum", "tbm": "isch"})
+        termo = " ".join(str(self.musica.get(k) or "") for k in ("artista", "titulo"))
+        url = "https://www.google.com/search?" + urlencode({"q": termo.strip() + " capa single", "tbm": "isch"})
         QDesktopServices.openUrl(QUrl(url))
 
     def _escolher_arquivo(self) -> None:

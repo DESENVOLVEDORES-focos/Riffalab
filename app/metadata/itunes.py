@@ -114,27 +114,29 @@ def faixas_capa(titulo: str, artista: str = "", album: str = "",
     from .correspondencia import pontuar
     saida = []
     urls = set()
-    for item in buscar(consulta, limite=25):
-        url = arte(item)
-        if not url or url in urls:
-            continue
-        candidato = {"titulo": item.get("trackName") or "",
-                     "artista": item.get("artistName") or "",
-                     "album": item.get("collectionName") or ""}
-        if not pontuar(titulo, artista, album, cand=candidato).aprovado:
-            continue
-        urls.add(url)
-        saida.append({"titulo": item.get("trackName") or "",
-                      "artista": item.get("artistName") or "",
-                      "album": item.get("collectionName") or "",
-                      "ano": ano_de(item.get("releaseDate") or ""),
-                      # No retorno de busca do iTunes não há tipo explícito;
-                      # o sufixo do catálogo é apenas um indício de single.
-                      "tipo_lancamento": ("single" if re.search(
-                          r"(?:\s*-\s*single|\s*\(single\))\s*$",
-                          str(item.get("collectionName") or ""), re.I) else ""),
-                      "capa_url": url})
-        if len(saida) >= 8:
+    # Procurar mais do que oito álbuns antes de desistir do single. Se o
+    # catálogo americano não retornar um candidato de single correspondente,
+    # consultar também o brasileiro; não transformar álbuns em singles.
+    for pais in ('US', 'BR'):
+        for item in buscar(consulta, limite=50, pais=pais):
+            url = arte(item)
+            if not url or url in urls:
+                continue
+            candidato = {"titulo": item.get("trackName") or "",
+                         "artista": item.get("artistName") or "",
+                         "album": item.get("collectionName") or ""}
+            if not pontuar(titulo, artista, album, cand=candidato).aprovado:
+                continue
+            urls.add(url)
+            saida.append({"titulo": candidato['titulo'], "artista": candidato['artista'],
+                          "album": candidato['album'],
+                          "ano": ano_de(item.get("releaseDate") or ""),
+                          # O sufixo do catálogo é indício, não prova.
+                          "tipo_lancamento": ("single" if re.search(
+                              r"(?:\s*-\s*single|\s*\(single\))\s*$",
+                              candidato['album'], re.I) else ""),
+                          "capa_url": url})
+        if any(f['tipo_lancamento'] == 'single' for f in saida):
             break
     return saida
 

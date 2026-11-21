@@ -13,10 +13,12 @@ O programa exibe a pesquisa primeiro e consulta os formatos gradualmente. Assim 
 
 O `INICIAR.bat` tenta instalar a biblioteca opcional `yt-dlp[default]` no ambiente `.venv` desta instalação. Ela pode ter uma versão diferente do `yt-dlp.exe` em `ferramentas`. Se a instalação falhar, o aplicativo ainda inicia e os outros três métodos podem ser usados. O download continua usando o executável, não a biblioteca. Você precisa fornecer `yt-dlp.exe` e FFmpeg separadamente. Ao atualizar uma instalação existente, mantenha suas configurações e ferramentas; faça backup dos dados antes de atualizar.
 
-O comparador não grava áudio, mas realiza quatro consultas de rede por resultado. Elas podem demorar ou atingir limites de acesso; há limite de quatro subprocessos de consulta simultâneos. Um método pode falhar sem bloquear os outros. Quando cookies são configurados, cada processo usa uma cópia temporária, removida ao final; o original não é alterado por essas consultas. Cookies continuam sendo credenciais: não os compartilhe.
+O comparador não grava áudio, mas realiza quatro consultas de rede por resultado. Elas podem demorar ou atingir limites de acesso; há limite global de dois subprocessos de consulta simultâneos para reduzir a carga do computador. Um método pode falhar sem bloquear os outros. Quando cookies são configurados, cada processo usa uma cópia temporária, removida ao final; o original não é alterado por essas consultas. Cookies continuam sendo credenciais: não os compartilhe.
 
 As quatro opções usam o yt-dlp e podem sofrer da mesma falha de autenticação, desafio JavaScript, bloqueio ou mudança do site. **Não há garantia de que algum método encontre áudio nem de que o download funcione.** A execução foi testada com yt-dlp e servidor HTTP locais e com a interface Qt fora do Windows; não houve teste do YouTube real nem do Windows. Para avaliar seu caso, confira o resultado de cada método no cartão e informe os nomes e mensagens exibidos, sem enviar cookies ou dados pessoais.
 
 A partir desta versão, o RiffLab também tenta instalar o Deno em `ferramentas`. Veja **DENO.md**; a presença do Deno não comprova que a consulta funcionará.
 
 Use **Comparar formatos** no cartão para ver os dados técnicos informados para cada ID. A ordem prioriza codecs sem perda e, em seguida, o bitrate informado; não prova qualidade sonora e não estabelece equivalência entre codecs. Consulte **COMPARAR-FORMATOS.md**.
+
+Para reduzir redesenhos durante a prévia, as atualizações visuais dos cartões são adiadas até fechar o player. Os formatos continuam sendo consultados em segundo plano; após fechar, os cartões são atualizados em pequenos lotes. Se a lista de formatos de um cartão estiver aberta, a atualização desse cartão aguarda a lista ser fechada.

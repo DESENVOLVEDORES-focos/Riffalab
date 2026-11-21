@@ -50,6 +50,35 @@ class CapasDeSingle(unittest.TestCase):
         self.assertEqual(capas[0].extra['tipo_lancamento'], '')
         self.assertEqual(capas[1].extra['tipo_lancamento'], 'single')
 
+    def test_itunes_busca_singles_apos_muitos_albuns_e_faz_fallback_brasil(self):
+        def item(nome):
+            return {'trackName': 'Paradise City', 'artistName': 'Guns N Roses',
+                    'collectionName': nome,
+                    'artworkUrl100': f'https://example.com/{nome}/100x100bb.jpg'}
+        albuns = [item('Disco' + str(i)) for i in range(12)]
+        def buscar(_consulta, limite=10, pais='US', entidade='song'):
+            return albuns if pais == 'US' else [item('Paradise City - Single')]
+        with patch.object(itunes, 'buscar', side_effect=buscar) as consulta:
+            capas = provedores.apple_music('Paradise City', 'Guns N Roses')
+        self.assertEqual([c.kwargs['pais'] for c in consulta.call_args_list], ['US', 'BR'])
+        self.assertTrue(any(c.extra['tipo_lancamento'] == 'single' for c in capas))
+        self.assertTrue(all(c.extra['tipo_lancamento'] != 'single' for c in capas[:12]))
+
+    def test_deezer_prioriza_detalhes_do_nome_da_musica_sem_inventar_tipo(self):
+        def item(i, nome):
+            return {'title':'Paradise City', 'artist':{'name':'Guns N Roses'},
+                    'album':{'id':i,'title':nome, 'cover_xl':f'https://example.com/{i}'}}
+        data = {'data':[item(i, 'Álbum '+str(i)) for i in range(1, 6)] + [item(6, 'Paradise City')]}
+        def get(url, *args, **kwargs):
+            if '/search?' in url: return data
+            return {'record_type': 'single' if url.endswith('/6') else 'album'}
+        with patch.object(provedores, '_get_json', side_effect=get) as chamadas:
+            capas = provedores.deezer('Paradise City', 'Guns N Roses')
+        detalhes = [c.args[0] for c in chamadas.call_args_list if '/album/' in c.args[0]]
+        self.assertTrue(detalhes[0].endswith('/6'))
+        self.assertEqual(capas[0].extra['tipo_lancamento'], 'single')
+        self.assertLessEqual(len(detalhes), 4)
+
     def test_deezer_tipo_confirmado_e_ausente_sem_inventar(self):
         data = {'data':[{'title':'Canção', 'artist':{'name':'Pessoa'},
                 'album':{'id':1,'title':'Disco','cover_xl':'https://example.com/a'}},

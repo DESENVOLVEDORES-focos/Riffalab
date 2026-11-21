@@ -20,6 +20,26 @@ def obj(formatos):
 
 
 class Multimetodos(unittest.TestCase):
+    def test_limite_global_de_processos_para_nao_sobrecarregar_previa(self):
+        import threading, time
+        ativos = 0
+        maximo = 0
+        lock = threading.Lock()
+        def rodar(args, timeout):
+            nonlocal ativos, maximo
+            with lock:
+                ativos += 1
+                maximo = max(maximo, ativos)
+            time.sleep(.05)
+            with lock: ativos -= 1
+            return 0, obj([formato('251')]), ''
+        threads = [threading.Thread(target=c.consultar, args=(
+            'https://example.com/video', ['yt-dlp'], rodar, _aviso_extracao)) for _ in range(3)]
+        for t in threads: t.start()
+        for t in threads: t.join(5)
+        self.assertTrue(all(not t.is_alive() for t in threads))
+        self.assertEqual(maximo, 2)
+
     def test_formatos_sao_publicados_antes_dos_metodos_lentos_terminarem(self):
         import threading
         liberar = threading.Event()

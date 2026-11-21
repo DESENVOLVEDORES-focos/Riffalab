@@ -282,7 +282,10 @@ def melhor_capa(titulo: str, artista: str = "", album: str = "", somente_single:
     if not artista and not album:
         return {}
     alvo_album = normalizar(album)
-    for grav in buscar_gravacao(titulo, artista, album, limite=3, somente_single=somente_single):
+    # Singles podem estar além dos primeiros resultados dominados por álbuns;
+    # examinar mais gravações sem aceitar lançamentos de tipo desconhecido.
+    limite = 25 if somente_single else 3
+    for grav in buscar_gravacao(titulo, artista, album, limite=limite, somente_single=somente_single):
         # confiança baixa = não sabemos se é a mesma música: não usa a capa
         if float(grav.get("confianca") or 0) < 0.70:
             continue

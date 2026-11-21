@@ -18,3 +18,5 @@ Os primeiros resultados das seções diferentes recebem prioridade na fila. Cons
 O aplicativo foi testado em Linux com Qt offscreen e respostas simuladas, além de yt-dlp com servidor HTTP local. Não houve teste desta versão no Windows nem em pesquisas reais no YouTube nesta sessão.
 
 A verificação dos formatos usa uma fila separada das pesquisas e downloads, para que uma consulta lenta não ocupe todos os recursos da pesquisa. Ainda assim, muitos resultados podem levar tempo e os quatro métodos dependem do yt-dlp e do acesso ao site.
+
+Quando a prévia está aberta, a atualização visual dos formatos é adiada até fechá-la para reduzir piscadas. As consultas continuam em segundo plano. A versão limita a dois processos de consulta simultâneos: isso reduz carga, mas uma lista grande pode demorar mais.

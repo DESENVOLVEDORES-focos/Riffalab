@@ -157,7 +157,17 @@ def deezer(titulo: str, artista: str = "", album: str = "",
     urls = set()
     tipos_album: Dict[str, str] = {}
     falha_detalhes = False
-    for item in dados.get("data") or []:
+    # A pesquisa costuma listar muitos álbuns antes do single. Os detalhes são
+    # limitados a quatro lançamentos, então consultar primeiro os nomes que
+    # parecem com o título. O nome NÃO confirma o tipo: a API ainda precisa
+    # informar record_type=single antes de a imagem ser aceita.
+    alvo_titulo = normalizar(titulo)
+    def prioridade(item):
+        alb = item.get('album') or {}
+        nome = normalizar(alb.get('title') or '')
+        tipo = str(alb.get('record_type') or '').lower()
+        return 0 if tipo == 'single' or nome in (alvo_titulo, alvo_titulo + ' single') else 1
+    for item in sorted(dados.get("data") or [], key=prioridade):
         alb = item.get("album") or {}
         nome_album = str(alb.get("title") or "")
         nome_artista = str((item.get("artist") or {}).get("name") or "")

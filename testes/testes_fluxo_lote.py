@@ -110,5 +110,36 @@ class FluxoLote(unittest.TestCase):
             self.assertTrue(res['ok'], res)
             self.assertFalse(ID3(res['caminho']).getall('APIC'))
 
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg não disponível')
+    def test_sem_capa_nao_conclui_se_remocao_falha_ou_apic_continua(self):
+        from mutagen.id3 import ID3, APIC
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d); origem = base / 'origem.mp3'
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                            'sine=frequency=440:duration=0.5', str(origem)], check=True)
+            try: tags = ID3(str(origem))
+            except Exception: tags = ID3()
+            tags.add(APIC(encoding=3, mime='image/jpeg', type=3, desc='frente', data=b'foto preexistente'))
+            tags.save(str(origem), v2_version=3)
+            original = origem.read_bytes()
+            cfg = Config(base / 'config.json'); cfg.dados['pasta_saida'] = str(base / 'saida')
+            fonte = FonteBibliotecaLocal(cfg)
+            fmt = AudioFormat(codec='mp3', url=str(origem))
+            r = TrackResult('id', 'biblioteca_local', 'Música', 'Artista', formatos=[fmt])
+            def copiar_sem_remover(origem_, destino, **kwargs):
+                shutil.copyfile(origem_, destino)
+                return {'acao':'copiar', 'motivo':'teste'}
+            for remocao in (PermissionError('sem permissão'), None):
+                prep = {'meta':TrackMeta(titulo='Música', artista='Artista'),
+                        'capa':CoverResult(observacao='sem capa'), 'ident':None}
+                with patch.object(pipeline, 'PASTA_TEMP', base / 'temp'), \
+                     patch.object(pipeline.convert, 'converter_para_mp3', side_effect=copiar_sem_remover), \
+                     patch.object(pipeline.tagging, 'remover_capa', side_effect=remocao):
+                    res = pipeline.processar_resultado(r, cfg, fonte=fonte, preparacao=prep)
+                self.assertFalse(res['ok'], res)
+                self.assertFalse((base / 'saida' / 'Artista' / 'Música.mp3').exists())
+                self.assertEqual(origem.read_bytes(), original)
+                self.assertTrue(ID3(str(origem)).getall('APIC'))
+
 if __name__ == '__main__':
     unittest.main()

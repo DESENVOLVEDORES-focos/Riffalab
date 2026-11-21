@@ -397,9 +397,11 @@ class DownloadsPage(QWidget):
         linhas = [l for l in self.selecoes if l.check.isChecked()]
         if not linhas or self._preparando:
             return
+        nao_marcadas = len(self.selecoes) - len(linhas)
         resposta = QMessageBox.question(self, 'Preparar sem capa',
-            f"Preparar {len(linhas)} música(s) selecionada(s) sem capa? "
-            "Isso substitui as capas escolhidas para essas músicas, mas não altera arquivos já baixados.",
+            f"Preparar {len(linhas)} música(s) marcadas sem capa? "
+            f"{nao_marcadas} música(s) desmarcadas não serão alteradas. "
+            "Isso prepara os próximos downloads; não altera MP3s já existentes e não inicia o download.",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if resposta == QMessageBox.Yes:
             self._iniciar_preparacao(linhas, sem_capa=True)

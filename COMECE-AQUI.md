@@ -46,3 +46,7 @@ Esta versão compara quatro métodos de consulta de formatos sem iniciar downloa
 ### Detalhes de cada formato
 
 No cartão de pesquisa, use **Comparar formatos** para ver os dados informados de cada opção e escolher uma delas. Veja **COMPARAR-FORMATOS.md**.
+
+### Visualizar MP3 e capas gravadas
+
+No menu **Ver MP3 e capas**, confira as imagens ID3 embutidas e as tags dos MP3s já existentes, sem alterá-los. Veja **VISUALIZAR-MP3.md**.

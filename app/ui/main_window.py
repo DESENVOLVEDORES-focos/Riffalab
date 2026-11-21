@@ -15,6 +15,7 @@ from ..downloader import GerenciadorFila
 from ..tools import status_ferramentas
 from ..workers import EXECUTOR_GLOBAL
 from .pages.downloads_page import DownloadsPage
+from .pages.mp3_viewer_page import MP3ViewerPage
 from .pages.search_page import SearchPage
 from .pages.settings_page import SettingsPage
 from .theme import PALETA
@@ -25,7 +26,8 @@ PAGINAS = [
     ("buscar", "Pesquisa normal", "1"),
     ("varias", "Várias músicas", "2"),
     ("downloads", "Downloads", "3"),
-    ("config", "Configurações", "4"),
+    ("visualizar", "Ver MP3 e capas", "4"),
+    ("config", "Configurações", "5"),
 ]
 
 
@@ -104,12 +106,14 @@ class MainWindow(QMainWindow):
                                          marcados_compartilhados=self.pagina_busca._marcados,
                                          erro_compartilhado=self.pagina_busca._erro_estado_inicial)
         self.pagina_downloads = DownloadsPage(config, self.fila)
+        self.pagina_visualizar = MP3ViewerPage(config)
         self.pagina_config = SettingsPage(config)
 
         self.paginas = {
             "buscar": self.pagina_busca,
             "varias": self.pagina_varias,
             "downloads": self.pagina_downloads,
+            "visualizar": self.pagina_visualizar,
             "config": self.pagina_config,
         }
         for pagina in self.paginas.values():
@@ -161,6 +165,8 @@ class MainWindow(QMainWindow):
         self.pilha.setCurrentWidget(pagina)
         if chave in ('buscar', 'varias'):
             pagina._atualizar_aviso()
+        if chave == 'visualizar':
+            pagina.abrir_inicial()
         if chave in self.botoes:
             self.botoes[chave].setChecked(True)
 
@@ -245,6 +251,7 @@ class MainWindow(QMainWindow):
                 return
         # Ignora respostas de pesquisas que acabem depois da janela fechar.
         self.fila.encerrar()
+        self.pagina_visualizar._encerrando = True
         for pagina in (self.pagina_busca, self.pagina_varias):
             pagina._encerrando = True
             pagina._geracao_busca += 1

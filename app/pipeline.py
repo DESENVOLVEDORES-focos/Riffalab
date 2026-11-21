@@ -282,6 +282,10 @@ def processar_resultado(
         # Identificação local independente das demais opções de tags. A marca
         # fica no MP3 final, inclusive quando a gravação de outras tags está desligada.
         arquivos_baixados.marcar(mp3_temp, resultado)
+        if preparacao is not None and not capa.ok:
+            # Não concluir nem mover um MP3 com APIC se foi pedido sem capa;
+            # falhas ao ler/gravar também precisam aparecer, não ser omitidas.
+            tagging.garantir_sem_capa(mp3_temp)
 
         # 6) organização / deduplicação
         _emitir(progresso, 96, "organizando o arquivo…")

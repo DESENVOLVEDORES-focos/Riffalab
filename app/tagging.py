@@ -145,10 +145,23 @@ def capa_embutida(caminho: str | Path) -> Optional[bytes]:
 
 
 def remover_capa(caminho: str | Path) -> None:
+    """Remove imagens ID3 do novo arquivo; erros de leitura/gravação não são omitidos."""
     from mutagen.id3 import ID3, ID3NoHeaderError
     try:
         tags = ID3(str(caminho))
-        tags.delall("APIC")
+    except ID3NoHeaderError:
+        return
+    if tags.getall('APIC'):
+        tags.delall('APIC')
         tags.save(str(caminho), v2_version=3)
-    except (ID3NoHeaderError, Exception):
-        pass
+
+
+def garantir_sem_capa(caminho: str | Path) -> None:
+    """Confirma no arquivo gerado que não restou nenhuma imagem APIC."""
+    from mutagen.id3 import ID3, ID3NoHeaderError
+    try:
+        tags = ID3(str(caminho))
+    except ID3NoHeaderError:
+        return
+    if tags.getall('APIC'):
+        raise RuntimeError('Ainda há uma imagem embutida no MP3 que deveria estar sem capa.')

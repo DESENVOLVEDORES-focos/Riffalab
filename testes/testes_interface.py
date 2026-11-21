@@ -261,6 +261,49 @@ class Interface(unittest.TestCase):
         self.assertNotIn('appetite', url)
         dialogo.deleteLater()
 
+    def test_visualizador_mp3_mostra_capa_embutida_e_nao_altera_arquivos(self):
+        import hashlib, time
+        from PySide6.QtGui import QImage, QColor
+        from mutagen.id3 import ID3, APIC, TIT2, TPE1
+        pasta = self.base / 'musicas'; (pasta / 'Artista').mkdir(parents=True)
+        imagem = self.base / 'imagem.png'
+        foto = QImage(50, 50, QImage.Format_RGB32); foto.fill(QColor('red'))
+        self.assertTrue(foto.save(str(imagem)))
+        com = pasta / 'Artista' / 'com.mp3'; com.write_bytes(b'')
+        tags = ID3(); tags.add(TIT2(encoding=3, text='Com capa')); tags.add(TPE1(encoding=3, text='Artista'))
+        tags.add(APIC(encoding=3, mime='image/png', type=3, desc='frente', data=imagem.read_bytes())); tags.save(str(com))
+        sem = pasta / 'Artista' / 'sem.mp3'; sem.write_bytes(b'')
+        tags = ID3(); tags.add(TIT2(encoding=3, text='Sem capa')); tags.save(str(sem))
+        antes = {p: hashlib.sha256(p.read_bytes()).digest() for p in (com, sem)}
+        self.cfg.dados['pasta_saida'] = str(pasta)
+        self.janela.ir_para('visualizar')
+        self.assertIs(self.janela.pilha.currentWidget(), self.janela.pagina_visualizar)
+        visor = self.janela.pagina_visualizar
+        prazo = time.monotonic() + 5
+        while (visor.tabela.rowCount() != 2 or not visor._imagens) and time.monotonic() < prazo:
+            self.app.processEvents(); time.sleep(.01)
+        self.assertEqual(visor.tabela.rowCount(), 2)
+        self.assertTrue(visor._imagens)
+        self.assertFalse(visor.lbl_capa.pixmap().isNull())
+        self.assertIn('Imagem embutida', visor.lbl_estado.text())
+        visor.filtro.setText('Sem capa')
+        prazo = time.monotonic() + 5
+        while visor.lbl_estado.text() != 'Sem imagem ID3. Nenhuma imagem APIC foi mostrada.' and time.monotonic() < prazo:
+            self.app.processEvents(); time.sleep(.01)
+        self.assertEqual(visor.tabela.rowCount(), 1)
+        self.assertIn('Sem imagem ID3', visor.lbl_estado.text())
+        self.assertEqual(antes, {p: hashlib.sha256(p.read_bytes()).digest() for p in (com, sem)})
+
+    def test_visualizador_ignora_resultados_antigos_e_apos_fechar(self):
+        visor = self.janela.pagina_visualizar
+        visor._geracao = 8
+        visor.resumo.setText('atual')
+        visor._lista_pronta(7, {'itens':[], 'erros':[], 'truncado':False})
+        self.assertEqual(visor.resumo.text(), 'atual')
+        visor._encerrando = True
+        visor._lista_pronta(8, {'itens':[], 'erros':[], 'truncado':False})
+        self.assertEqual(visor.resumo.text(), 'atual')
+
     def test_formato_parcial_disponivel_e_escolha_preservada_ate_fim(self):
         import threading, time
         from copy import deepcopy

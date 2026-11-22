@@ -20,6 +20,35 @@ def obj(formatos):
 
 
 class Multimetodos(unittest.TestCase):
+    def test_primeira_consulta_deixa_outros_metodos_aguardando(self):
+        chamadas = []
+        def rodar(args, timeout):
+            chamadas.append(args)
+            return 0, obj([formato('251')]), ''
+        dados = c.consultar('https://example.com/video', ['yt-dlp'], rodar,
+                            _aviso_extracao, indices=(1,))
+        self.assertEqual(len(chamadas), 1)
+        self.assertIn('-j', chamadas[0])
+        self.assertEqual([m['estado'] for m in dados['metodos']],
+                         ['aguardando', 'ok', 'aguardando', 'aguardando'])
+        self.assertEqual(dados['formats'][0]['format_id'], '251')
+
+    def test_falha_ao_iniciar_complemento_conserva_formato_e_encerra_estado(self):
+        from app.models import AudioFormat
+        r = TrackResult('abc', 'ytdlp', 'Canção', 'Pessoa', pagina_url='https://example.com/a')
+        r.formatos = [AudioFormat(codec='opus', format_id='251')]
+        r.extra['consulta_em_andamento'] = True
+        r.extra['metodos_consulta'] = [{'nome': 'JSON', 'estado':'ok'},
+                                       {'nome': 'Outro', 'estado':'aguardando'}]
+        fonte = FonteYtDlp.__new__(FonteYtDlp)
+        with patch.object(fonte, '_args_base', return_value=['yt-dlp']), \
+             patch.object(c, 'consultar', side_effect=RuntimeError()):
+            saida = fonte.detalhar(r)
+        self.assertEqual(saida.formatos[0].format_id, '251')
+        self.assertNotIn('consulta_em_andamento', saida.extra)
+        self.assertEqual(saida.extra['metodos_consulta'][1]['estado'], 'falhou')
+        self.assertIn('não confirmados', saida.aviso)
+
     def test_limite_global_de_processos_para_nao_sobrecarregar_previa(self):
         import threading, time
         ativos = 0

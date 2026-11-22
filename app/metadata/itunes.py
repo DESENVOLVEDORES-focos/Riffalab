@@ -114,9 +114,8 @@ def faixas_capa(titulo: str, artista: str = "", album: str = "",
     from .correspondencia import pontuar
     saida = []
     urls = set()
-    # Procurar mais do que oito álbuns antes de desistir do single. Se o
-    # catálogo americano não retornar um candidato de single correspondente,
-    # consultar também o brasileiro; não transformar álbuns em singles.
+    # Consultar ambos os catálogos pode revelar edições diferentes, mesmo se
+    # um deles já tiver um single. Não transformar álbuns em singles.
     for pais in ('US', 'BR'):
         for item in buscar(consulta, limite=50, pais=pais):
             url = arte(item)
@@ -136,8 +135,6 @@ def faixas_capa(titulo: str, artista: str = "", album: str = "",
                               r"(?:\s*-\s*single|\s*\(single\))\s*$",
                               candidato['album'], re.I) else ""),
                           "capa_url": url})
-        if any(f['tipo_lancamento'] == 'single' for f in saida):
-            break
     return saida
 
 

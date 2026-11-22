@@ -377,6 +377,33 @@ class FonteYtDlp(FonteBase):
         resultado.extra.pop("erro_detalhe", None)
         return resultado
 
+    def detalhar_primeiro(self, resultado: TrackResult) -> TrackResult:
+        """Consulta primeiro o JSON real; os outros métodos ficam para a próxima etapa."""
+        url = resultado.pagina_url or resultado.extra.get('url')
+        if not url:
+            resultado.extra['erro_detalhe'] = 'sem URL para consultar'
+            resultado.aviso = 'qualidade não detectada'
+            return resultado
+        try:
+            consulta = consulta_formatos.consultar(url, self._args_base(tentativas=1),
+                                                   self._rodar, _aviso_extracao, indices=(1,))
+            resultado.extra['metodos_consulta'] = consulta['metodos']
+            resultado.extra['consulta_em_andamento'] = True
+            resultado.formatos = []
+            self._aplicar_json(resultado, consulta)
+            if not resultado.formatos:
+                # Outros métodos podem encontrar áudio; não declarar falha final.
+                resultado.extra.pop('erro_detalhe', None)
+                resultado.aviso = 'aguardando os outros métodos'
+            return resultado
+        except Exception:
+            resultado.extra['consulta_em_andamento'] = True
+            resultado.extra['metodos_consulta'] = [
+                {'nome': n, 'estado': 'falhou' if i == 1 else 'aguardando',
+                 'motivo': 'não foi possível iniciar' if i == 1 else '', 'quantidade': 0}
+                for i, n in enumerate(consulta_formatos.NOMES)]
+            return resultado
+
     def detalhar(self, resultado: TrackResult, ao_parcial=None) -> TrackResult:
         """Consulta o yt-dlp para listar os formatos de áudio reais.
 
@@ -387,7 +414,7 @@ class FonteYtDlp(FonteBase):
         """
         metodos_anteriores = resultado.extra.get("metodos_consulta") or []
         incompleto = (resultado.extra.get("consulta_em_andamento") or
-                      any(m.get('estado') == 'consultando' for m in metodos_anteriores))
+                      any(m.get('estado') in ('consultando', 'aguardando') for m in metodos_anteriores))
         if resultado.formatos and metodos_anteriores and not incompleto:
             return resultado
         url = resultado.pagina_url or resultado.extra.get("url")
@@ -412,17 +439,29 @@ class FonteYtDlp(FonteBase):
                                                    self._rodar, _aviso_extracao,
                                                    ao_parcial=publicar_parcial if ao_parcial else None)
         except Exception:
+            resultado.extra.pop("consulta_em_andamento", None)
+            for metodo in resultado.extra.get("metodos_consulta") or []:
+                if metodo.get("estado") in ("consultando", "aguardando"):
+                    metodo.update(estado="falhou", motivo="consulta interrompida")
             resultado.extra["erro_detalhe"] = "não foi possível iniciar a consulta dos formatos"
-            resultado.aviso = "qualidade não detectada"
+            resultado.aviso = ("formatos anteriores não confirmados" if resultado.formatos
+                               else "qualidade não detectada")
             return resultado
         resultado.extra["metodos_consulta"] = consulta["metodos"]
         resultado.extra.pop("consulta_em_andamento", None)
+        anteriores = list(resultado.formatos)
         resultado.formatos = []
         self._aplicar_json(resultado, consulta)
         if not resultado.formatos:
             motivos = [x.get("motivo") for x in consulta["metodos"] if x.get("motivo")]
-            resultado.extra["erro_detalhe"] = (motivos[0] if motivos else
-                                                "nenhum método encontrou áudio disponível")
+            motivo = motivos[0] if motivos else "nenhum método encontrou áudio disponível"
+            if anteriores:
+                resultado.formatos = anteriores
+                resultado.extra['erro_detalhe'] = ('Consulta complementar não confirmou os formatos da '
+                    'primeira consulta: ' + motivo + '. Eles podem ter ficado indisponíveis.')
+                resultado.aviso = 'formatos anteriores não confirmados'
+            else:
+                resultado.extra["erro_detalhe"] = motivo
         return resultado
 
     def _json_do_video(self, resultado: TrackResult) -> Optional[Dict[str, Any]]:

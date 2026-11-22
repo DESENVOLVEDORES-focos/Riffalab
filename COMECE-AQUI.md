@@ -41,7 +41,7 @@ Cada novo MP3 recebe uma marca RiffLab. A pesquisa verifica a pasta de saída e 
 
 ### Pesquisa de qualidade
 
-Esta versão compara quatro métodos de consulta de formatos sem iniciar download de áudio. Veja **QUATRO-METODOS.md** para entender os resultados, instalação da biblioteca opcional e limitações.
+Esta versão verifica os resultados em fila: primeiro busca formatos de cada música exibida e, depois, compara quatro métodos sem iniciar download de áudio. O contador mostra consultas pendentes; resultados ocultos pelo filtro são verificados quando exibidos. As consultas podem falhar ou demorar. Veja **QUATRO-METODOS.md** para entender os resultados, instalação da biblioteca opcional e limitações.
 
 ### Detalhes de cada formato
 

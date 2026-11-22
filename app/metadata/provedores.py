@@ -104,26 +104,33 @@ def caa_album_confirmado(mbid_release_group: str, album: str = "",
 def caa_busca(titulo: str, artista: str = "", album: str = "",
               ano: Optional[int] = None) -> List[Capa]:
     """CAA por busca de texto — usa a confiança real da MusicBrainz."""
+    if not titulo or not artista:
+        return []
     try:
-        achado = musicbrainz.melhor_capa(titulo, artista, "", somente_single=True)
-    except Exception:                                             # noqa: BLE001
+        gravacoes = musicbrainz.buscar_gravacao(titulo, artista, "", limite=25,
+                                                  somente_single=True, todos_singles=True)
+    except Exception:
         return []
-    if not achado or not achado.get("url"):
-        return []
-    confianca = float(achado.get("confianca") or 0.0)
-    if confianca < 0.70:                     # portão: evita capa de outra música
-        return []
-    return [Capa(url=achado["url"], fonte="coverartarchive",
-                 prioridade=PRIORIDADE["coverartarchive"],
-                 album=achado.get("album") or "",
-                 artista=achado.get("artista") or "",
-                 titulo=achado.get("titulo") or "",
-                 ano=achado.get("ano"),
-                 mbid=achado.get("release_group") or "",
-                 score_provedor=round(confianca, 3),
-                 observacao="Cover Art Archive (busca por gravação)",
-                 extra={"release_id": achado.get("release_id") or "",
-                        "tipo_lancamento": str(achado.get("tipo_lancamento") or "").lower()})]
+    saida: List[Capa] = []
+    # Limite de requisições: catálogos podem listar centenas de edições.
+    for achado in gravacoes[:6]:
+        confianca = float(achado.get("confianca") or 0.0)
+        if confianca < 0.70 or str(achado.get("tipo_lancamento") or "").lower() != "single":
+            continue
+        for imagem in coverartarchive.imagens(release_id=achado.get("release_id") or "",
+                                              release_group=achado.get("release_group") or "")[:3]:
+            if not imagem.get("url"):
+                continue
+            saida.append(Capa(url=imagem["url"], fonte="coverartarchive",
+                              prioridade=PRIORIDADE["coverartarchive"],
+                              album=achado.get("album") or "", artista=achado.get("artista") or "",
+                              titulo=achado.get("titulo") or "", ano=achado.get("ano"),
+                              mbid=achado.get("release_group") or "",
+                              score_provedor=round(confianca, 3),
+                              observacao="Cover Art Archive (edição de single)",
+                              extra={"release_id": achado.get("release_id") or "",
+                                     "tipo_lancamento": "single"}))
+    return saida
 
 
 # ------------------------------------------------------------------ 3: Apple

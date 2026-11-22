@@ -57,6 +57,7 @@ class SearchPage(QWidget):
         self.formato_parcial.connect(self._receber_formato_parcial)
         self._geracao_baixados = 0
         self._fila_verif: List[ResultCard] = []
+        self._fila_complementar: list[tuple[ResultCard, TrackResult]] = []
         self._verif_ativas = 0
         self._falhas_verif: List[str] = []
         self._falhas_total = 0
@@ -447,6 +448,8 @@ class SearchPage(QWidget):
         self.painel_filtros.show()
         self.btn_filtros.setText("Ocultar fontes ↑")
         self.status.setText(f"Não foi possível pesquisar: {msg}")
+        if self._fila_verif or self._fila_complementar:
+            self._verificar_proximo()
         self.mensagem.emit(f"Falha na pesquisa: {msg[:120]}")
 
     def _mostrar(self, dados: dict) -> None:
@@ -589,10 +592,11 @@ class SearchPage(QWidget):
         self._botoes_pesquisa(False)
         self.barra.setVisible(False)
         self._status_base = f"{len(respostas)} pesquisa(s) · {len(self.cards)} resultado(s)"
-        self._status_verificacao()
+        self._verificar_proximo()
         todos = [r for g in self._grupos_busca for r in g.get('resultados', []) + g['filtrados']]
         if self.filtrados:
             self._avisar_filtrados()
+            self._status_verificacao()
         if todos:
             self._conferir_baixados(todos)
 
@@ -783,6 +787,7 @@ class SearchPage(QWidget):
         self.status_baixados.clear()
         self.status_baixados.hide()
         self._fila_verif.clear()
+        self._fila_complementar.clear()
         self._falhas_verif = []
         self._falhas_total = 0
         self._avisou_falha = False
@@ -816,7 +821,7 @@ class SearchPage(QWidget):
             return False
         metodos = resultado.extra.get('metodos_consulta') or []
         incompleto = (resultado.extra.get('consulta_em_andamento') or
-                      any(m.get('estado') == 'consultando' for m in metodos))
+                      any(m.get('estado') in ('consultando', 'aguardando') for m in metodos))
         return (not resultado.formatos or
                 (resultado.fonte == 'ytdlp' and (not metodos or incompleto)))
 
@@ -833,25 +838,40 @@ class SearchPage(QWidget):
 
     def _verificar_proximo(self) -> None:
         from copy import deepcopy
-        while self._fila_verif and self._verif_ativas < PARALELAS:
-            card = self._fila_verif.pop(0)
+        while self._verif_ativas < PARALELAS:
+            if self._fila_verif:
+                card = self._fila_verif.pop(0)
+                consulta = deepcopy(card.resultado) if card in self.cards else None
+                etapa = 'primeira'
+            elif self._fila_complementar and not self._buscando:
+                card, consulta = self._fila_complementar.pop(0)
+                consulta = deepcopy(consulta)
+                etapa = 'completa'
+            else:
+                break
+            if card not in self.cards:
+                continue
             fonte = self._fonte_de(card.resultado.fonte)
             if not fonte:
                 continue
+            if getattr(card, '_verif_forcar', False):
+                etapa = 'completa'
+                card._verif_forcar = False
+            if etapa == 'primeira' and not callable(getattr(fonte, 'detalhar_primeiro', None)):
+                etapa = 'completa'
             self._verif_ativas += 1
             card.btn_verificar.setText("Consultando…")
             card.btn_verificar.setEnabled(False)
             token = object()
             card._token_verificacao = token
-            # Não modificar o resultado da interface numa thread de trabalho.
-            consulta = deepcopy(card.resultado)
             kwargs = {}
-            if card.resultado.fonte == 'ytdlp':
+            if etapa == 'completa' and card.resultado.fonte == 'ytdlp':
                 kwargs['ao_parcial'] = lambda r, c=card, t=token: self.formato_parcial.emit(c, t, r)
+            funcao = fonte.detalhar_primeiro if etapa == 'primeira' else fonte.detalhar
             EXECUTOR_FORMATOS.rodar(
-                fonte.detalhar, consulta, **kwargs,
-                ao_resultado=lambda r, c=card: self._detalhe_pronto(c, r),
-                ao_erro=lambda m, c=card: self._detalhe_falhou(c, m),
+                funcao, consulta, **kwargs,
+                ao_resultado=lambda r, c=card, e=etapa: self._detalhe_pronto(c, r, e),
+                ao_erro=lambda m, c=card, e=etapa: self._detalhe_falhou(c, m, e),
             )
         self._status_verificacao()
 
@@ -861,10 +881,13 @@ class SearchPage(QWidget):
         self._aplicar_detalhe(card, resultado)
 
     def _status_verificacao(self) -> None:
-        if self._fila_verif or self._verif_ativas:
+        if self._fila_verif or self._fila_complementar or self._verif_ativas:
             base = getattr(self, "_status_base", "Resultados")
-            self.status.setText(f"{base} · formatos: {self._verif_ativas} consultando, "
-                                f"{len(self._fila_verif)} aguardando")
+            encontrados = sum(1 for c in self.cards if c.resultado.formatos)
+            self.status.setText(f"{base} · formatos encontrados: {encontrados}/{len(self.cards)} · "
+                                f"{self._verif_ativas} consultando, "
+                                f"{len(self._fila_verif)} primeiras consultas e "
+                                f"{len(self._fila_complementar)} comparações aguardando")
             return
         base = getattr(self, "_status_base", None)
         if not base:
@@ -961,7 +984,7 @@ class SearchPage(QWidget):
         except RuntimeError:
             pass
 
-    def _detalhe_pronto(self, card: ResultCard, resultado: TrackResult) -> None:
+    def _detalhe_pronto(self, card: ResultCard, resultado: TrackResult, etapa: str = 'completa') -> None:
         self._verif_ativas = max(0, self._verif_ativas - 1)
         if self._encerrando:
             return
@@ -970,14 +993,16 @@ class SearchPage(QWidget):
             return
         card._token_verificacao = None
         self._aplicar_detalhe(card, resultado)
-        if not resultado.formatos:
+        if etapa == 'primeira':
+            self._fila_complementar.append((card, resultado))
+        elif not resultado.formatos:
             self._falhas_total += 1
             motivo = resultado.extra.get("erro_detalhe")
             if motivo and motivo not in self._falhas_verif:
                 self._falhas_verif.append(motivo)
         self._verificar_proximo()
 
-    def _detalhe_falhou(self, card: ResultCard, msg: str) -> None:
+    def _detalhe_falhou(self, card: ResultCard, msg: str, etapa: str = 'completa') -> None:
         self._verif_ativas = max(0, self._verif_ativas - 1)
         if self._encerrando:
             return
@@ -985,6 +1010,13 @@ class SearchPage(QWidget):
             self._verificar_proximo()
             return
         card._token_verificacao = None
+        if etapa == 'primeira':
+            from copy import deepcopy
+            resultado = deepcopy(card.resultado)
+            resultado.extra['consulta_em_andamento'] = True
+            self._fila_complementar.append((card, resultado))
+            self._verificar_proximo()
+            return
         if self.previa.isVisible():
             from copy import deepcopy
             resultado = deepcopy(self._detalhes_adiados.get(card, card.resultado))
@@ -1027,6 +1059,8 @@ class SearchPage(QWidget):
     # --------------------------------------------------------------- detalhar
     def _detalhar(self, card: ResultCard) -> None:
         """Verificação manual (botão do cartão ou "tentar de novo")."""
+        if getattr(card, "_token_verificacao", None) is not None:
+            return  # uma consulta deste cartão ainda está em andamento
         card.resultado.extra.pop("erro_detalhe", None)
         card.resultado.extra.pop("metodos_consulta", None)
         card.resultado.extra.pop("consulta_em_andamento", None)
@@ -1047,6 +1081,8 @@ class SearchPage(QWidget):
             return
         if card in self._fila_verif:
             self._fila_verif.remove(card)
+        self._fila_complementar = [(c, r) for c, r in self._fila_complementar if c is not card]
+        card._verif_forcar = True
         self._fila_verif.insert(0, card)
         self._verificar_proximo()
 

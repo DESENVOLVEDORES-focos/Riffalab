@@ -343,7 +343,7 @@ class ResultCard(QFrame):
                 linhas.append(f"{nome}: {detalhe}")
             self._detalhes_metodos = "\n".join(linhas)
             self.lbl_metodos_qualidade.setToolTip(self._detalhes_metodos)
-            concluidos = sum(m.get('estado') != 'consultando' for m in metodos)
+            concluidos = sum(m.get('estado') not in ('consultando', 'aguardando') for m in metodos)
             total = len(metodos)
             texto = f"{len(self.resultado.formatos)} formato(s) · {concluidos}/{total} métodos"
             self.lbl_metodos_qualidade.setText(

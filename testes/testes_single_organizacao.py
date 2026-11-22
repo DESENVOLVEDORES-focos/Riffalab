@@ -64,6 +64,17 @@ class CapasDeSingle(unittest.TestCase):
         self.assertTrue(any(c.extra['tipo_lancamento'] == 'single' for c in capas))
         self.assertTrue(all(c.extra['tipo_lancamento'] != 'single' for c in capas[:12]))
 
+    def test_itunes_busca_ambos_paises_mesmo_com_single_nos_eua(self):
+        def buscar(_consulta, limite=10, pais='US', entidade='song'):
+            return [{'trackName':'Canção', 'artistName':'Pessoa',
+                     'collectionName':'Canção - Single',
+                     'artworkUrl100':f'https://example.com/{pais}/100x100bb.jpg'}]
+        with patch.object(itunes, 'buscar', side_effect=buscar) as consulta:
+            capas = provedores.apple_music('Canção', 'Pessoa')
+        self.assertEqual([c.kwargs['pais'] for c in consulta.call_args_list], ['US', 'BR'])
+        self.assertEqual(len(capas), 2)
+        self.assertTrue(all(c.extra['tipo_lancamento'] == 'single' for c in capas))
+
     def test_deezer_prioriza_detalhes_do_nome_da_musica_sem_inventar_tipo(self):
         def item(i, nome):
             return {'title':'Paradise City', 'artist':{'name':'Guns N Roses'},
@@ -109,6 +120,38 @@ class CapasDeSingle(unittest.TestCase):
             capa = musicbrainz.melhor_capa('Canção', 'Pessoa', somente_single=True)
         self.assertEqual(capa['tipo_lancamento'], 'Single')
         self.assertTrue(busca.call_args.kwargs['somente_single'])
+
+    def test_caa_traz_edicoes_singles_e_varias_frontais_sem_albuns(self):
+        def rel(ident, tipo):
+            return {'id': ident, 'title': 'Canção',
+                    'release-group': {'id': 'g-' + ident, 'primary-type': tipo}}
+        dados = {'recordings': [{'title': 'Canção', 'score': 100,
+                 'artist-credit': [{'name': 'Pessoa'}],
+                 'releases': [rel('album', 'Album'), rel('single1', 'Single'),
+                              rel('single2', 'Single'), rel('incerto', '')]}]}
+        def imagens(release_id='', release_group=''):
+            if release_id == 'single1':
+                return [{'url':'https://example.com/front1', 'frontal':True, 'tipos':['Front']},
+                        {'url':'https://example.com/back', 'frontal':False, 'tipos':['Back']},
+                        {'url':'https://example.com/front2', 'frontal':True, 'tipos':['Front']}]
+            return [{'url':'https://example.com/front3', 'frontal':True, 'tipos':['Front']}]
+        with patch.object(musicbrainz, '_get', return_value=dados), \
+             patch.object(musicbrainz, 'capas_release', side_effect=imagens) as chamadas:
+            capas = provedores.caa_busca('Canção', 'Pessoa')
+        self.assertEqual({c.url for c in capas}, {'https://example.com/front1',
+                         'https://example.com/front2', 'https://example.com/front3'})
+        self.assertEqual({c.extra['tipo_lancamento'] for c in capas}, {'single'})
+        self.assertEqual({c.kwargs['release_id'] for c in chamadas.call_args_list}, {'single1', 'single2'})
+
+    def test_caa_respeita_limite_e_descarta_tipo_e_confianca_incorretos(self):
+        registros = [dict(release_id=str(i), titulo='Canção', artista='Pessoa',
+                          tipo_lancamento='Single', confianca=1) for i in range(9)]
+        registros[0]['tipo_lancamento'] = 'Album'
+        registros[1]['confianca'] = .2
+        with patch.object(musicbrainz, 'buscar_gravacao', return_value=registros), \
+             patch.object(provedores.coverartarchive, 'imagens', return_value=[]) as imagens:
+            self.assertEqual(provedores.caa_busca('Canção','Pessoa'), [])
+        self.assertEqual(imagens.call_count, 4)
 
     def test_sem_single_nao_faz_fallback_para_album_nem_thumb(self):
         album = provedores.Capa(url='https://example.com/album', titulo='Canção', artista='Pessoa',

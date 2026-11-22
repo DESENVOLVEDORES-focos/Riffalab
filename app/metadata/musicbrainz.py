@@ -64,7 +64,8 @@ def _artista(creditos: List[Dict[str, Any]]) -> str:
 
 
 def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
-                    limite: int = 4, somente_single: bool = False) -> List[Dict[str, Any]]:
+                    limite: int = 4, somente_single: bool = False,
+                    todos_singles: bool = False) -> List[Dict[str, Any]]:
     """Pesquisa gravações e escolhe, para cada uma, o release mais provável.
 
     Se `album` for informado, releases com nome parecido têm prioridade
@@ -99,6 +100,7 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
         if not releases:
             continue
         melhor_rel, melhor_nota = None, -1.0
+        singles = []
         for rel in releases:
             tipo = str((rel.get("release-group") or {}).get("primary-type") or "")
             if somente_single and tipo.lower() != "single":
@@ -116,6 +118,8 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
                 nota += 0.2                      # álbum, não coletânea gigante
             if (rel.get("release-group") or {}).get("primary-type") == "Album":
                 nota += 0.5
+            if somente_single and todos_singles and rel.get("id"):
+                singles.append((rel, nota))
             if nota > melhor_nota:
                 melhor_rel, melhor_nota = rel, nota
         if not melhor_rel:
@@ -134,19 +138,20 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
                 continue
         confianca = min(1.0, (sim_titulo * 0.55) + (sim_artista * 0.35)
                         + (min(int(rec.get("score") or 0), 100) / 100.0) * 0.10)
-        saida.append({
-            "titulo": nome_rec or titulo,
-            "artista": artista_rec or artista,
-            "confianca": round(confianca, 3),
-            "album": melhor_rel.get("title") or "",
-            "album_score": round(melhor_nota, 2),
-            "tipo_lancamento": str((melhor_rel.get("release-group") or {}).get("primary-type") or ""),
-            "release_id": melhor_rel.get("id"),
-            "release_group": (melhor_rel.get("release-group") or {}).get("id"),
-            "ano": int((melhor_rel.get("date") or "0")[:4] or 0) or None,
-            "pais": melhor_rel.get("country") or "",
-            "score_mb": int(rec.get("score") or 0),
-        })
+        for melhor_rel, melhor_nota in (singles if somente_single and todos_singles else [(melhor_rel, melhor_nota)]):
+            saida.append({
+                "titulo": nome_rec or titulo,
+                "artista": artista_rec or artista,
+                "confianca": round(confianca, 3),
+                "album": melhor_rel.get("title") or "",
+                "album_score": round(melhor_nota, 2),
+                "tipo_lancamento": str((melhor_rel.get("release-group") or {}).get("primary-type") or ""),
+                "release_id": melhor_rel.get("id"),
+                "release_group": (melhor_rel.get("release-group") or {}).get("id"),
+                "ano": int((melhor_rel.get("date") or "0")[:4] or 0) or None,
+                "pais": melhor_rel.get("country") or "",
+                "score_mb": int(rec.get("score") or 0),
+            })
     saida.sort(key=lambda r: (r.get("confianca") or 0, r.get("album_score") or 0,
                               r.get("score_mb") or 0), reverse=True)
     # um mesmo release não precisa aparecer duas vezes

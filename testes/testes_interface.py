@@ -261,6 +261,110 @@ class Interface(unittest.TestCase):
         self.assertNotIn('appetite', url)
         dialogo.deleteLater()
 
+    def test_fila_descarta_callbacks_de_card_antigo_e_continua_pesquisa_nova(self):
+        from app.models import AudioFormat, TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        tarefas = []
+        def agendar(fn, resultado, **kwargs):
+            tarefas.append((fn, resultado, kwargs))
+        def dados(nome):
+            return {'resultados':[TrackResult(nome,'ytdlp',nome,'Artista')],
+                    'filtrados':[], 'consulta':nome, 'fontes':[], 'segundos':0, 'erros':{}}
+        class Fonte:
+            def detalhar_primeiro(self, r): return r
+            def detalhar(self, r, **kw): return r
+        with patch.object(busca, '_fonte_de', return_value=Fonte()), \
+             patch.object(search_page.EXECUTOR_FORMATOS, 'rodar', side_effect=agendar), \
+             patch.object(busca, '_conferir_baixados'):
+            busca._mostrar(dados('antiga'))
+            velho = busca.cards[0]
+            antiga = tarefas.pop(0)
+            busca._mostrar(dados('nova'))
+            novo = busca.cards[0]
+            nova = tarefas.pop(0)
+            antiga[1].formatos = [AudioFormat(codec='opus', format_id='251')]
+            antiga[2]['ao_resultado'](antiga[1])
+            self.assertNotIn(velho, busca.cards)
+            self.assertEqual(novo.resultado.uid, 'nova')
+            self.assertFalse(novo.resultado.formatos)
+            nova[2]['ao_erro']('falhou')
+            self.assertEqual(len(tarefas), 1)  # falha inicial ainda tenta os quatro métodos
+            completa = tarefas.pop(0)
+            completa[2]['ao_erro']('falhou de novo')
+            self.assertEqual(busca._verif_ativas, 0)
+            self.assertFalse(busca._fila_complementar)
+            self.assertIn('Falha', novo.resultado.extra['erro_detalhe'])
+
+    def test_filtrado_oculto_nao_recebe_callback_e_pode_ser_reexibido(self):
+        from app.models import TrackResult
+        from app.ui.pages import search_page
+        busca = self.janela.pagina_busca
+        tarefas = []
+        class Fonte:
+            def detalhar_primeiro(self, r): return r
+            def detalhar(self, r, **kw): return r
+        dados = {'resultados':[TrackResult('normal','ytdlp','Normal','Artista',
+                     extra={'erro_detalhe':'já falhou'})],
+                 'filtrados':[TrackResult('filtrado','ytdlp','Ao vivo','Artista')],
+                 'consulta':'x','fontes':[],'segundos':0,'erros':{}}
+        with patch.object(busca, '_fonte_de', return_value=Fonte()), \
+             patch.object(search_page.EXECUTOR_FORMATOS, 'rodar', side_effect=lambda fn, r, **kw: tarefas.append((r,kw))), \
+             patch.object(busca, '_conferir_baixados'):
+            busca._mostrar(dados)
+            busca._alternar_filtrados()
+            velho = busca._cards_filtrados[0]
+            busca._alternar_filtrados()
+            busca._alternar_filtrados()
+            novo = busca._cards_filtrados[0]
+            self.assertIsNot(velho, novo)
+            tarefas[0][1]['ao_resultado'](tarefas[0][0])
+            self.assertNotIn(velho, busca.cards)
+            self.assertNotIn(velho, [c for c, _ in busca._fila_complementar])
+            self.assertIn(novo, busca.cards)
+
+    def test_vinte_resultados_recebem_primeira_consulta_antes_de_comparacoes_lentas(self):
+        import threading, time
+        from app.models import AudioFormat, TrackResult
+        busca = self.janela.pagina_varias
+        self.janela.ir_para('varias')
+        liberar = threading.Event()
+        primeiras, completas = [], []
+        class Fonte:
+            def detalhar_primeiro(self, r):
+                primeiras.append(r.uid)
+                r.formatos = [AudioFormat(codec='opus', format_id='251')]
+                r.extra['consulta_em_andamento'] = True
+                r.extra['metodos_consulta'] = [{'nome':'JSON','estado':'ok','quantidade':1},
+                                               {'nome':'Outro','estado':'aguardando','quantidade':0}]
+                return r
+            def detalhar(self, r, ao_parcial=None):
+                completas.append((r.uid, len(primeiras)))
+                liberar.wait(5)
+                r.extra.pop('consulta_em_andamento', None)
+                r.extra['metodos_consulta'] = [{'nome':'JSON','estado':'ok','quantidade':1}]
+                return r
+        resultados = [TrackResult(str(i), 'ytdlp', f'Música {i}', 'Artista') for i in range(20)]
+        try:
+            with patch.object(busca, '_fonte_de', return_value=Fonte()), patch.object(busca, '_conferir_baixados'):
+                busca._mostrar({'resultados':resultados, 'filtrados':[], 'consulta':'teste',
+                               'fontes':[], 'segundos':0, 'erros':{}})
+                prazo = time.monotonic() + 4
+                while (len(primeiras) < 20 or not busca.cards[-1].resultado.formatos) and time.monotonic() < prazo:
+                    self.app.processEvents(); time.sleep(.01)
+                self.assertEqual(len(primeiras), 20)
+                self.assertTrue(busca.cards[-1].resultado.formatos)
+                self.assertTrue(all(n >= 18 for _, n in completas))
+                self.assertTrue(busca._verif_ativas or busca._fila_complementar)
+                liberar.set()
+                prazo = time.monotonic() + 5
+                while (busca._verif_ativas or busca._fila_complementar or busca._fila_verif) and time.monotonic() < prazo:
+                    self.app.processEvents(); time.sleep(.01)
+                self.assertEqual(len(completas), 20)
+                self.assertFalse(busca._fila_complementar)
+        finally:
+            liberar.set()
+
     def test_visualizador_mp3_mostra_capa_embutida_e_nao_altera_arquivos(self):
         import hashlib, time
         from PySide6.QtGui import QImage, QColor

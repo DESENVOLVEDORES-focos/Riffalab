@@ -40,7 +40,7 @@ class Toast(QLabel):
         self._anim.setStartValue(self._efeito.opacity())
         self._anim.setEndValue(0.0)
         self._anim.start()
-        QTimer.singleShot(240, lambda: self.setVisible(False))
+        QTimer.singleShot(240, self.hide)
 
     def _posicionar(self) -> None:
         pai = self.parentWidget()

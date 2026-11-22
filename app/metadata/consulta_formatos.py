@@ -89,7 +89,8 @@ def _erro_seguro(texto: str) -> str:
     return 'consulta falhou'
 
 
-def consultar(url: str, base: List[str], rodar, aviso_extracao, ao_parcial=None) -> Dict[str, Any]:
+def consultar(url: str, base: List[str], rodar, aviso_extracao, ao_parcial=None,
+              indices=None) -> Dict[str, Any]:
     """Executa todos os métodos para o mesmo URL e cruza formatos por ID.
 
     Cada subprocesso recebe sua própria cópia temporária do cookie: yt-dlp pode
@@ -155,9 +156,13 @@ def consultar(url: str, base: List[str], rodar, aviso_extracao, ao_parcial=None)
         except Exception:
             return {'nome': nome, 'estado': 'falhou', 'motivo': 'erro ao executar ou ler os cookies'}
 
-    resultados = [{'nome': nome, 'estado': 'consultando', 'formatos': []} for nome in NOMES]
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futuros = {pool.submit(metodo, i): i for i in range(4)}
+    escolhidos = tuple(range(4)) if indices is None else tuple(indices)
+    if not escolhidos or any(i not in range(4) for i in escolhidos):
+        raise ValueError('Seleção inválida de métodos')
+    resultados = [{'nome': nome, 'estado': 'consultando' if i in escolhidos else 'aguardando',
+                   'formatos': []} for i, nome in enumerate(NOMES)]
+    with ThreadPoolExecutor(max_workers=len(escolhidos)) as pool:
+        futuros = {pool.submit(metodo, i): i for i in escolhidos}
         for futuro in as_completed(futuros):
             resultados[futuros[futuro]] = futuro.result()
             if ao_parcial and any(r.get('formatos') for r in resultados):

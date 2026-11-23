@@ -4,7 +4,8 @@ Regras de segurança adotadas aqui:
   * nenhum conteúdo (nome/valor de cookie) é lido para fora deste módulo;
   * nada é escrito em log: só caminho, tamanho, contagem de linhas e datas;
   * a validação é estrutural (formato Netscape), sem imprimir valores;
-  * o arquivo nunca é copiado, enviado ou anexado a resultados de pesquisa.
+  * consultas podem usar cópias temporárias que são removidas ao fim; o
+    conteúdo não é anexado aos resultados nem enviado ao RiffLab.
 """
 from __future__ import annotations
 

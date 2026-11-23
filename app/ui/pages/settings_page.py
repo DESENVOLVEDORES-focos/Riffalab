@@ -206,6 +206,10 @@ class SettingsPage(QWidget):
         self.btn_escolher_cookies.setObjectName("fantasma")
         self.btn_escolher_cookies.clicked.connect(self._escolher_cookies)
         botoes.addWidget(self.btn_escolher_cookies)
+        self.btn_testar_cookies = QPushButton("Testar sessão no YouTube")
+        self.btn_testar_cookies.setObjectName("fantasma")
+        self.btn_testar_cookies.clicked.connect(self._testar_cookies_youtube)
+        botoes.addWidget(self.btn_testar_cookies)
         self.btn_rever_cookies = QPushButton("Verificar novamente")
         self.btn_rever_cookies.setObjectName("fantasma")
         self.btn_rever_cookies.clicked.connect(self._atualizar_cookies)
@@ -216,6 +220,17 @@ class SettingsPage(QWidget):
         botoes.addWidget(self.btn_pasta_cookies)
         botoes.addStretch(1)
         c.layout_.addLayout(botoes)
+
+        self.lbl_teste_cookies = QLabel("O estado acima verifica apenas o formato do arquivo; não confirma o login.")
+        self.lbl_teste_cookies.setTextFormat(Qt.PlainText)
+        self.lbl_teste_cookies.setWordWrap(True)
+        c.layout_.addWidget(self.lbl_teste_cookies)
+        dica = QLabel("O teste de sessão consulta até um item da sua lista pessoal Assistir mais tarde, "
+                      "sem mostrar títulos nem baixar vídeos. Se ela estiver vazia, o resultado pode ser inconclusivo. "
+                      "Ele envia uma cópia temporária dos cookies ao YouTube e não altera o arquivo original.")
+        dica.setWordWrap(True)
+        dica.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        c.layout_.addWidget(dica)
 
         aviso = QLabel("Segurança — o conteúdo do cookies.txt é tratado como informação sensível: "
                        "não aparece na interface e não deve ser compartilhado. "
@@ -233,6 +248,7 @@ class SettingsPage(QWidget):
         # Guarda somente o caminho; não copia o conteúdo para o projeto.
         self.config.update(caminho_cookies=caminho, usar_cookies=True)
         self._atualizar_cookies()
+        self.lbl_teste_cookies.setText("Arquivo alterado: faça novamente o teste de sessão.")
         self.config_alterada.emit()
         self.mensagem.emit("Arquivo de cookies selecionado.")
 
@@ -252,6 +268,28 @@ class SettingsPage(QWidget):
             f"Caminho: {st.caminho}   ·   {st.tamanho} bytes   ·   "
             f"{st.cookies_validos} cookie(s) em {st.dominios} domínio(s)   ·   "
             f"modificado em {st.modificado_texto()}")
+
+    def _testar_cookies_youtube(self) -> None:
+        from ...teste_cookies_youtube import testar
+        caminho = str(self.config.caminho_cookies)
+        self.btn_testar_cookies.setEnabled(False)
+        self.lbl_teste_cookies.setText("Consultando o YouTube… isso pode levar até 90 segundos.")
+
+        def pronto(resultado):
+            self.btn_testar_cookies.setEnabled(True)
+            if str(self.config.caminho_cookies) != caminho:
+                self.lbl_teste_cookies.setText("O arquivo selecionado mudou. Faça novamente o teste.")
+                return
+            mensagem = resultado['mensagem']
+            if not self.config.get('usar_cookies'):
+                mensagem += ' Atenção: o uso de cookies está desativado nos downloads.'
+            self.lbl_teste_cookies.setText(mensagem)
+
+        def falhou(_msg):
+            self.btn_testar_cookies.setEnabled(True)
+            self.lbl_teste_cookies.setText("Não foi possível concluir o teste de sessão.")
+
+        EXECUTOR_GLOBAL.rodar(testar, caminho, ao_resultado=pronto, ao_erro=falhou)
 
     # ===================================================== identificação com IA
     def _cartao_ia(self) -> None:

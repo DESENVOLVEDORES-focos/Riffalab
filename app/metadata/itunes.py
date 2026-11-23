@@ -121,28 +121,34 @@ def faixas_capa(titulo: str, artista: str = "", album: str = "",
         return []
     from .correspondencia import pontuar
     saida = []
-    urls = set()
-    # Consultar ambos os catálogos pode revelar edições diferentes, mesmo se
-    # um deles já tiver um single. Não transformar álbuns em singles.
+    indice_por_url = {}
+    # A mesma imagem pode estar associada tanto a um álbum como a um single.
+    # Guardar primeiro o álbum e descartar o single pela URL faz a etapa
+    # seguinte rejeitar ambos, mesmo quando o catálogo identifica um single.
     for pais in ('US', 'BR'):
         for item in buscar(consulta, limite=50, pais=pais):
             url = arte(item)
-            if not url or url in urls:
+            if not url:
                 continue
             candidato = {"titulo": item.get("trackName") or "",
                          "artista": item.get("artistName") or "",
                          "album": item.get("collectionName") or ""}
             if not pontuar(titulo, artista, album, cand=candidato).aprovado:
                 continue
-            urls.add(url)
-            saida.append({"titulo": candidato['titulo'], "artista": candidato['artista'],
-                          "album": candidato['album'],
-                          "ano": ano_de(item.get("releaseDate") or ""),
-                          # O sufixo do catálogo é indício, não prova.
-                          "tipo_lancamento": ("single" if re.search(
-                              r"(?:\s*-\s*single|\s*\(single\))\s*$",
-                              candidato['album'], re.I) else ""),
-                          "capa_url": url})
+            novo = {"titulo": candidato['titulo'], "artista": candidato['artista'],
+                    "album": candidato['album'],
+                    "ano": ano_de(item.get("releaseDate") or ""),
+                    # O sufixo do catálogo é indício, não prova.
+                    "tipo_lancamento": ("single" if re.search(
+                        r"(?:\s*-\s*single|\s*\(single\))\s*$",
+                        candidato['album'], re.I) else ""),
+                    "capa_url": url}
+            indice = indice_por_url.get(url)
+            if indice is None:
+                indice_por_url[url] = len(saida)
+                saida.append(novo)
+            elif novo['tipo_lancamento'] == 'single' and saida[indice]['tipo_lancamento'] != 'single':
+                saida[indice] = novo
     return saida
 
 

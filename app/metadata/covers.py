@@ -88,7 +88,7 @@ def candidatos_capa(
     """
     from . import busca_capas
 
-    aprovadas, _reprovadas = busca_capas.coletar(
+    aprovadas, reprovadas = busca_capas.coletar(
         titulo, artista, album, ano, fontes=_padrao_fontes(fontes),
         minimo_lado=minimo_lado, thumb_extra=thumb_extra,
         usar_miniatura=usar_miniatura, identificacao=identificacao,
@@ -105,6 +105,14 @@ def candidatos_capa(
             motivo = ("Nenhuma capa de single identificada com confiança. Os serviços podem "
                       "não responder ou não ter um single reconhecido. Não usamos capa de álbum "
                       "como substituta; escolha uma imagem salva ou siga sem capa.")
+            sem_single = sum(a.motivo == 'não foi possível confirmar que a capa é de um single'
+                             for a in reprovadas)
+            outras = len(reprovadas) - sem_single
+            if reprovadas:
+                motivo += (f" Candidatos descartados: {sem_single} sem confirmação de single"
+                           f" e {outras} por imagem ou correspondência.")
+            else:
+                motivo += " Nenhum candidato chegou à avaliação; veja erros das fontes na janela de iniciar."
         return CoverResult(observacao=motivo), []
 
     resultados = [a.como_cover_result() for a in aprovadas]

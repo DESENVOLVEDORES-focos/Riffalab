@@ -12,6 +12,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List
 
+from ..logging_setup import registrar_erro
+
 # Consultas usam processos externos pesados. Compartilhar apenas dois em todo
 # o aplicativo reduz a carga ao navegar e usar a prévia em listas grandes.
 _LIMITE = threading.BoundedSemaphore(2)
@@ -115,6 +117,8 @@ def consultar(url: str, base: List[str], rodar, aviso_extracao, ao_parcial=None,
                     flags = (['-F'], ['-j'], ['-F', '--print-json'])[indice]
                     comando = args + ['--no-cache-dir'] + flags + ['--no-playlist', '--', url]
                 codigo, saida, erro = rodar(comando, timeout=45)
+                if codigo != 0:
+                    registrar_erro(f'Formatos — {nome}', f'código {codigo}: {(erro or saida or "sem diagnóstico")[-6000:]}')
                 diagnostico = aviso_extracao(erro)
                 versao = ''
                 dados = None
@@ -152,8 +156,10 @@ def consultar(url: str, base: List[str], rodar, aviso_extracao, ao_parcial=None,
                         'videos': videos, 'info': info, 'motivo': diagnostico or
                         ('nenhum áudio reconhecido' if codigo == 0 else _erro_seguro(erro))} 
         except subprocess.TimeoutExpired:
+            registrar_erro(f'Formatos — {nome}', 'tempo esgotado')
             return {'nome': nome, 'estado': 'falhou', 'motivo': 'tempo esgotado'}
-        except Exception:
+        except Exception as exc:
+            registrar_erro(f'Formatos — {nome}', f'{type(exc).__name__}: {exc}')
             return {'nome': nome, 'estado': 'falhou', 'motivo': 'erro ao executar ou ler os cookies'}
 
     escolhidos = tuple(range(4)) if indices is None else tuple(indices)

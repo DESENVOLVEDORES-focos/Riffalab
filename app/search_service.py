@@ -7,6 +7,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from .config import Config
 from .models import TrackResult
+from .logging_setup import registrar_erro
 from .pesquisa import filtros
 from .pesquisa import resultados as resultados_mod
 from .quality import pontuar
@@ -77,6 +78,9 @@ def pesquisar(consulta: str, config: Config, limite: int = 20,
             _emitir(progresso, 3 + int(feitos / total * 60),
                     f"{fonte.nome}: {len(resultados)} resultado(s)")
 
+    for fid, motivo in erros.items():
+        registrar_erro(f'Pesquisa — fonte {fid}', motivo)
+
     # Mesmos título/artista/duração não significam o mesmo vídeo: podem ser
     # uploads ou versões diferentes. Remove apenas a mesma identidade da fonte.
     unicos: Dict[Tuple[str, str], TrackResult] = {}
@@ -116,6 +120,7 @@ def pesquisar(consulta: str, config: Config, limite: int = 20,
                         f"conferindo vídeos: {feito}/{total}"))
             except Exception as exc:                              # noqa: BLE001
                 erros.setdefault("ytdlp", f"enriquecimento: {exc}")
+                registrar_erro('Pesquisa — enriquecimento yt-dlp', f'{type(exc).__name__}: {exc}')
 
     # 1.5) o enriquecimento pode ter descoberto o canal: refaz a separação
     # canal/artista agora que o título original está disponível
@@ -175,6 +180,7 @@ def pesquisar_varias(consultas: List[str], config: Config, limite: int = 20,
             try:
                 respostas[i] = futuro.result()
             except Exception as exc:  # um termo com erro não apaga os outros
+                registrar_erro('Pesquisa múltipla', f'{type(exc).__name__}: {exc}')
                 respostas[i] = {"consulta": termos[i], "resultados": [], "filtrados": [],
                                 "fontes": [], "segundos": 0,
                                 "erros": {"pesquisa": f"{type(exc).__name__}: {exc}"}}

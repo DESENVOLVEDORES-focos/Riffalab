@@ -51,6 +51,9 @@ def _get(url: str, tentativas: int = 2) -> Any:
         except Exception as e:                                   # noqa: BLE001
             ultimo_erro = e
             time.sleep(1.2 * (tentativa + 1))
+    from ..logging_setup import registrar_erro
+    registrar_erro('MusicBrainz / Cover Art Archive',
+                   f'{type(ultimo_erro).__name__}: {ultimo_erro}' if ultimo_erro else 'falha na consulta')
     raise ultimo_erro if ultimo_erro else RuntimeError("falha na MusicBrainz")
 
 

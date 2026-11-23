@@ -42,7 +42,8 @@ class Tarefa(QRunnable):
             else:
                 resultado = self.fn(*self.args, **self.kwargs)
         except Exception as exc:                                  # noqa: BLE001
-            traceback.print_exc()
+            from .logging_setup import registrar_erro
+            registrar_erro(f'Tarefa {getattr(self.fn, "__name__", "em segundo plano")}', traceback.format_exc())
             try:
                 self.sinais.erro.emit(f"{exc.__class__.__name__}: {exc}")
             except RuntimeError:

@@ -74,8 +74,10 @@ def _get_json(url: str, servico: str, cabecalhos: Optional[Dict[str, str]] = Non
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 import json
                 return json.loads(resp.read().decode("utf-8", "replace"))
-        except Exception:                                         # noqa: BLE001
+        except Exception as exc:                                 # noqa: BLE001
             if tentativa + 1 >= tentativas:
+                from ..logging_setup import registrar_erro
+                registrar_erro(f'Catálogo {servico}', f'{type(exc).__name__}: {exc}')
                 return None
             time.sleep(1.2 * (tentativa + 1))
     return None

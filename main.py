@@ -143,4 +143,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception:
+        # Também cobre erros de inicialização antes de instalar sys.excepthook.
+        from app.logging_setup import configurar
+        configurar().error("Erro ao iniciar ou executar o aplicativo:\n%s", traceback.format_exc())
+        sys.exit(1)

@@ -155,6 +155,8 @@ class FonteYtDlp(FonteBase):
         except Exception as exc:                                  # noqa: BLE001
             raise RuntimeError(f"não foi possível executar o yt-dlp: {exc}") from None
         if codigo != 0 or not saida.strip():
+            from ..logging_setup import registrar_erro
+            registrar_erro('Pesquisa yt-dlp', f'código {codigo}: {erro or "resposta vazia"}')
             raise RuntimeError(_motivo_erro(erro, codigo))
         try:
             dados = json.loads(saida)
@@ -594,7 +596,8 @@ class FonteYtDlp(FonteBase):
             for parcial in destino.parent.glob('audio_orig.*'):
                 if parcial.is_file():
                     parcial.unlink()
-            detalhe = " | ".join(l for l in ultimos if l)[-300:]
+            # Retém o diagnóstico recente; o console oculta URLs e credenciais.
+            detalhe = " | ".join(l for l in ultimos if l)[-16000:]
             contexto = (f"Não foi possível baixar o formato escolhido ({escolha}); "
                         "nenhum outro formato foi usado. " if escolha != 'bestaudio/best' else "")
             raise RuntimeError(f"{contexto}yt-dlp falhou ({p.returncode}): {detalhe}")

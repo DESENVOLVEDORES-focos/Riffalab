@@ -93,8 +93,10 @@ echo.
 rem ---------- 5) abre o aplicativo -------------------------------------
 :executar
 echo  Abrindo o RiffLab...
+echo  Mantenha esta janela aberta. Os erros aparecerao aqui e em rifflab.log.
+echo  Antes de compartilhar, revise caminhos e dados pessoais.
 echo.
-"%PYEXE%" main.py %*
+"%PYEXE%" -u main.py %*
 if errorlevel 1 goto erro_execucao
 goto fim
 
@@ -128,7 +130,7 @@ goto fim
 echo.
 echo  [ERRO] O aplicativo encerrou com um erro.
 echo         Detalhes no arquivo rifflab.log nesta mesma pasta.
-echo         Para ver a mensagem na tela rode o DIAGNOSTICO.bat
+echo         Confira tambem as mensagens acima nesta janela.
 echo.
 
 :fim

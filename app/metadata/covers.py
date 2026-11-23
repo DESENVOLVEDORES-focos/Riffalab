@@ -31,7 +31,9 @@ def baixar_imagem(url: str, timeout: int = TIMEOUT) -> Optional[bytes]:
         if len(dados) < 1024 or not eh_imagem(dados):
             return None
         return dados
-    except Exception:
+    except Exception as exc:
+        from ..logging_setup import registrar_erro
+        registrar_erro('Baixar imagem de capa', f'{type(exc).__name__}: {exc}')
         return None
 
 

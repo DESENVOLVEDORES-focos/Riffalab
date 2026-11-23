@@ -21,7 +21,7 @@ from typing import Any, Dict
 
 APP_NOME = "RiffLab"
 APP_SUB = "pesquisa · qualidade · metadados"
-APP_VERSAO = "0.6.4"
+APP_VERSAO = "0.6.5"
 
 # ------------------------------------------------------------------ caminhos
 def _raiz() -> Path:
@@ -194,7 +194,7 @@ class Config:
             raise RuntimeError(
                 f"Pasta de saída indisponível ou sem permissão: {pasta}. "
                 "Conecte a unidade ou escolha outra em Configurações → Áudio e destino. "
-                "Nenhum áudio foi baixado.") from exc
+                f"Nenhum áudio foi baixado. Detalhe: {type(exc).__name__}: {exc}") from exc
         return pasta
 
     @property

@@ -182,10 +182,10 @@ def processar_resultado(
     try:
         config.garantir_pasta_saida()
     except RuntimeError as exc:
-        return {"ok": False, "erro": str(exc)}
+        return {"ok": False, "erro": str(exc), "etapa": "pasta de saída"}
     fonte = fonte or sources.por_id(resultado.fonte, config)
     if fonte is None:
-        return {"ok": False, "erro": f"fonte desconhecida: {resultado.fonte}"}
+        return {"ok": False, "erro": f"fonte desconhecida: {resultado.fonte}", "etapa": "fonte"}
     formato = formato or resultado.melhor
     if not formato:
         # fontes resumidas (yt-dlp) precisam de uma segunda consulta
@@ -193,15 +193,19 @@ def processar_resultado(
             resultado = fonte.detalhar(resultado) if fonte else resultado
             formato = resultado.melhor
         except Exception as exc:                                  # noqa: BLE001
-            return {"ok": False, "erro": f"não foi possível obter formatos: {exc}"}
+            return {"ok": False, "erro": f"não foi possível obter formatos: {exc}", "etapa": "formatos"}
     if not formato:
-        return {"ok": False, "erro": "nenhum formato de áudio disponível"}
+        return {"ok": False, "erro": "nenhum formato de áudio disponível", "etapa": "formatos"}
 
-    pasta = _pasta_temp(resultado.uid)
+    try:
+        pasta = _pasta_temp(resultado.uid)
+    except Exception as exc:
+        return {"ok": False, "erro": f"{type(exc).__name__}: {exc}", "etapa": "pasta temporária"}
     bruto: Optional[Path] = None
     mp3_temp: Optional[Path] = None
     relatorio: Dict[str, Any] = {"ok": False, "uid": resultado.uid, "fonte": resultado.fonte}
 
+    etapa = 'obtenção do áudio'
     try:
         # 1) download / obtenção do áudio
         _emitir(progresso, 2, "obtendo o áudio…")
@@ -209,6 +213,7 @@ def processar_resultado(
         bruto = fonte.baixar(resultado, formato, pasta / f"origem{extensao}", progresso)
         relatorio["arquivo_bruto"] = str(bruto)
 
+        etapa = 'análise do áudio obtido'
         # 2) análise real do que foi baixado
         _emitir(progresso, 48, "analisando qualidade…")
         info_origem = audio_probe.analisar(bruto)
@@ -216,6 +221,7 @@ def processar_resultado(
             raise RuntimeError(f"arquivo inválido: {info_origem.erro}")
         relatorio["origem"] = info_origem.como_dict()
 
+        etapa = 'metadados e capa'
         if preparacao is not None:
             # A escolha do usuário e os metadados foram preparados antes do lote.
             ident = preparacao.get("ident")
@@ -280,6 +286,7 @@ def processar_resultado(
             meta.origem_capa = ""
             relatorio["capa"] = {"fonte": "", "observacao": capa.observacao}
 
+        etapa = 'conversão para MP3'
         # 4) conversão para MP3
         modo = str(config.get("qualidade_mp3") or "automatica")
         bitrate_alvo = int(config.get("mp3_bitrate") or 256)
@@ -295,6 +302,7 @@ def processar_resultado(
         meta.duracao_s = duracao_final if duracao_final and duracao_final > 0 else None
         relatorio["conversao"] = {"acao": conv["acao"], "motivo": conv["motivo"]}
 
+        etapa = 'gravação das tags e capa'
         # 5) tags + capa embutida
         if preparacao is not None or config.get("gravar_tags", True):
             _emitir(progresso, 90, "gravando título/artista/álbum e capa…")
@@ -328,6 +336,7 @@ def processar_resultado(
             # falhas ao ler/gravar também precisam aparecer, não ser omitidas.
             tagging.garantir_sem_capa(mp3_temp)
 
+        etapa = 'gravação na pasta de saída'
         # 6) organização / deduplicação
         _emitir(progresso, 96, "organizando o arquivo…")
         base = config.pasta_saida
@@ -344,6 +353,7 @@ def processar_resultado(
             mp3_temp = None
             relatorio.update({"ok": True, "duplicado": False, "caminho": str(alvo)})
 
+        etapa = 'análise do arquivo final'
         info_final = audio_probe.analisar(alvo)
         relatorio.update({
             "meta": meta.como_dict(),
@@ -356,7 +366,7 @@ def processar_resultado(
         return relatorio
 
     except Exception as exc:                                      # noqa: BLE001
-        relatorio.update({"ok": False, "erro": f"{exc.__class__.__name__}: {exc}"})
+        relatorio.update({"ok": False, "erro": f"{exc.__class__.__name__}: {exc}", "etapa": etapa})
         _emitir(progresso, 100, f"erro: {exc}")
         return relatorio
     finally:

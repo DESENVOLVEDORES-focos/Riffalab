@@ -13,6 +13,7 @@ from typing import Any, Deque, Dict, List, Optional
 from PySide6.QtCore import QObject, Signal
 
 from . import pipeline, sources
+from .logging_setup import registrar_erro
 from .config import Config
 from .db import Banco
 from .models import AudioFormat, TrackResult
@@ -179,10 +180,12 @@ class GerenciadorFila(QObject):
                 self._iniciar(item)
             except Exception as exc:
                 job = item['job']
+                registrar_erro(f"Início do download {job['id']} ({job['titulo']})", f"{type(exc).__name__}: {exc}")
                 job.update(status='erro', erro=str(exc), mensagem=str(exc))
                 try:
                     self.banco.atualizar_download(job['id'], status='erro', erro=str(exc))
                 except Exception as erro_banco:
+                    registrar_erro('Histórico de download', f'{type(erro_banco).__name__}: {erro_banco}')
                     self.mensagem.emit(f"Não foi possível salvar o erro no histórico: {erro_banco}")
                 self.job_atualizado.emit(dict(job))
                 with self._lock:
@@ -215,6 +218,7 @@ class GerenciadorFila(QObject):
         def ao_erro(msg: str) -> None:
             if self._encerrando:
                 return
+            registrar_erro(f"Download {job['id']} ({job['titulo']}) — tarefa", msg)
             job["status"] = "erro"
             job["erro"] = msg
             job["mensagem"] = msg
@@ -286,6 +290,7 @@ class GerenciadorFila(QObject):
         else:
             job["status"] = "erro"
             job["erro"] = res.get("erro", "erro desconhecido")
+            registrar_erro(f"Download {job['id']} ({job['titulo']}) — {res.get('etapa') or 'processamento'}", job["erro"])
             job["mensagem"] = job["erro"]
             self.banco.atualizar_download(job["id"], status="erro", erro=job["erro"])
             self.mensagem.emit(f"Erro em {job['titulo']}: {job['erro'][:80]}")

@@ -29,7 +29,9 @@ def buscar(termo: str, limite: int = 10, pais: str = "US", entidade: str = "song
                                      "limit": max(1, min(50, limite)), "country": pais})
     try:
         return list(_get(f"{API}?{params}").get("results") or [])
-    except Exception:
+    except Exception as exc:
+        from ..logging_setup import registrar_erro
+        registrar_erro('Catálogo iTunes', f'{type(exc).__name__}: {exc}')
         return []
 
 

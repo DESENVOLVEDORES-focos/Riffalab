@@ -193,9 +193,13 @@ def identificar(resultado: TrackResult, config: Config,
         bruto, modelo = cliente_groq.completar_json(
             config, SISTEMA, montar_pedido(resultado), ESQUEMA)
     except cliente_groq.ErroGroq as exc:
+        from ..logging_setup import registrar_erro
+        registrar_erro('Identificação Groq', f'{type(exc).__name__}: {exc}')
         return Identificacao(ok=False, erro=str(exc), origem="groq",
                              segundos=round(time.time() - inicio, 1))
     except Exception as exc:                                      # noqa: BLE001
+        from ..logging_setup import registrar_erro
+        registrar_erro('Identificação Groq', f'{type(exc).__name__}: {exc}')
         return Identificacao(ok=False, erro=f"{exc.__class__.__name__}: {exc}",
                              origem="groq", segundos=round(time.time() - inicio, 1))
 

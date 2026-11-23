@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout
 from ... import estado_musicas
 from ...config import Config
 from ...downloader import GerenciadorFila
+from ...logging_setup import registrar_erro, texto_seguro
 from ...models import CoverResult, hhmmss
 from ...preparacao import preparar_musica, aplicar_edicao
 from ...workers import EXECUTOR_GLOBAL
@@ -87,6 +88,9 @@ class LinhaJob(QFrame):
         lay.addLayout(linha)
 
         self.mensagem = QLabel("aguardando…")
+        self.mensagem.setTextFormat(Qt.PlainText)
+        self.mensagem.setWordWrap(True)
+        self.mensagem.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.mensagem.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
         lay.addWidget(self.mensagem)
 
@@ -115,7 +119,7 @@ class LinhaJob(QFrame):
         self.detalhe.setText("  ·  ".join(p for p in partes if p))
         self.barra.setValue(int(job.get("progresso") or 0))
         msg = job.get("erro") or job.get("mensagem") or ""
-        self.mensagem.setText(msg[:190])
+        self.mensagem.setText(texto_seguro(msg) if status == 'erro' else msg)
         self.mensagem.setStyleSheet(
             f"color: {PALETA['vermelho'] if status == 'erro' else PALETA['texto_fraco']}; font-size: 11px;")
         # O gerenciador só pode cancelar itens ainda aguardando na fila.
@@ -386,6 +390,7 @@ class DownloadsPage(QWidget):
                 [estado_musicas.serializar_selecao(linha) for linha in self.selecoes])
             return True
         except Exception as exc:
+            registrar_erro('Salvar seleção de Downloads', f'{type(exc).__name__}: {exc}')
             self.mensagem.emit(f"Não foi possível salvar a lista de Downloads: {exc}")
             return False
 
@@ -402,6 +407,7 @@ class DownloadsPage(QWidget):
                     elif pedido.get('edicao'):
                         linha.nome.setText(f"{pedido['edicao'].get('artista', '')} — {pedido['edicao'].get('titulo', '')}")
         except Exception as exc:
+            registrar_erro('Recuperar seleção de Downloads', f'{type(exc).__name__}: {exc}')
             self._erro_recuperar = str(exc)
 
     def _editar_dados(self, linha: LinhaSelecao) -> None:
@@ -505,6 +511,7 @@ class DownloadsPage(QWidget):
         self.mensagem.emit('Escolha de capas interrompida; nenhum áudio foi baixado.')
 
     def _falha_preparacao(self, mensagem: str) -> None:
+        registrar_erro('Preparar música e capa', mensagem)
         self._cancelar_preparacao()
         QMessageBox.warning(self, 'Não foi possível buscar a capa', mensagem[:500])
 
@@ -525,6 +532,7 @@ class DownloadsPage(QWidget):
         try:
             self.config.garantir_pasta_saida()
         except RuntimeError as exc:
+            registrar_erro('Pasta de saída antes do lote', f'{type(exc).__name__}: {exc}')
             QMessageBox.warning(self, 'Pasta de saída indisponível', str(exc))
             return
         self.btn_baixar.setEnabled(False)
@@ -535,6 +543,7 @@ class DownloadsPage(QWidget):
                                     preparacao=linha.preparacao)
             except Exception as exc:
                 # Preserva na lista o item que falhou e todos os seguintes.
+                registrar_erro('Iniciar lote', f'{type(exc).__name__}: {exc}')
                 QMessageBox.warning(self, 'Falha ao iniciar o lote', str(exc)[:500])
                 break
             self._remover_selecao(linha)
@@ -555,6 +564,7 @@ class DownloadsPage(QWidget):
             self.fila.tentar_novamente(jid)
             self.mensagem.emit('Nova tentativa adicionada à fila.')
         except Exception as exc:
+            registrar_erro('Tentar download novamente', f'{type(exc).__name__}: {exc}')
             QMessageBox.warning(self, 'Não foi possível tentar novamente', str(exc)[:500])
 
     def atualizar(self, job: dict) -> None:

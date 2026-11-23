@@ -441,6 +441,8 @@ class SearchPage(QWidget):
         )
 
     def _erro(self, msg: str) -> None:
+        from ...logging_setup import registrar_erro
+        registrar_erro('Pesquisa', msg)
         self._buscando = False
         self.barra.setVisible(False)
         self._botoes_pesquisa(False)

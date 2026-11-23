@@ -173,6 +173,18 @@ class DialogoCapas(QDialog):
         titulo = QLabel("Esta é a capa que será gravada no MP3?")
         titulo.setStyleSheet("font-size: 17px; font-weight: 800;")
         fora.addWidget(titulo)
+        consulta = self.musica.get('consulta_capa') or {}
+        if consulta:
+            texto = (f"Busca da capa ({consulta.get('origem') or 'dados disponíveis'}): "
+                     f"{consulta.get('artista') or 'artista não informado'} — "
+                     f"{consulta.get('titulo') or 'título não informado'}")
+            if consulta.get('aviso'):
+                texto += "\n" + str(consulta['aviso'])
+            self.lbl_consulta = QLabel(texto)
+            self.lbl_consulta.setTextFormat(Qt.PlainText)
+            self.lbl_consulta.setWordWrap(True)
+            self.lbl_consulta.setStyleSheet(f"color: {PALETA['amarelo']}; font-size: 11.5px;")
+            fora.addWidget(self.lbl_consulta)
         if 'fontes_capa' in self.musica:
             nomes = {'coverartarchive': 'MusicBrainz / Cover Art Archive',
                      'itunes': 'Apple / iTunes', 'deezer': 'Deezer'}

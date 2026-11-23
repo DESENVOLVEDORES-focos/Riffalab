@@ -141,14 +141,14 @@ def montar_metadados(resultado: TrackResult, config: Config,
 
 
 def buscar_capa(meta: TrackMeta, config: Config, thumb_extra: str = "",
-                progresso: Progresso = None, ident=None):
+                progresso: Progresso = None, ident=None, interpretar_canal: bool = True):
     _emitir(progresso, 60, "procurando a capa…")
     # canal não é artista: "Disney", "FulanoVEVO", "Canal Official" etc. fazem a
     # busca pegar a capa de OUTRA música com o mesmo nome. Nesses casos tenta o
     # "Artista - Título" que costuma vir no nome do vídeo.
     artista_capa = meta.artista or ""
     titulo_capa = meta.titulo or ""
-    if artista_capa and parece_canal(artista_capa):
+    if interpretar_canal and artista_capa and parece_canal(artista_capa):
         candidato, titulo_separado = separar_artista_titulo(titulo_capa)
         if candidato and titulo_separado and not parece_canal(candidato):
             # Usar a parte da música na consulta: pesquisar o título completo

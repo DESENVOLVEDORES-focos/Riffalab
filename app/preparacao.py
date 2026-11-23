@@ -41,6 +41,62 @@ def aplicar_edicao(meta, edicao):
             if campo in edicao and not str(edicao[campo] or '').strip()]
 
 
+def identidade_para_capa(meta, ident, config, edicao=None):
+    """Define a consulta por música sem alterar metadados ou edições do usuário.
+
+    A sugestão textual da IA orienta a busca, não prova a gravação nem a capa.
+    Uma divergência de versão ou resposta incompleta não é usada silenciosamente.
+    """
+    from .texto import normalizar
+    from .metadata.correspondencia import versoes
+    from .ia.identificador import _confianca
+
+    edicao = edicao or {}
+    titulo, artista = meta.titulo or '', meta.artista or ''
+    origem = 'dados revisados' if any(k in edicao for k in ('titulo', 'artista')) else 'dados da música'
+    aviso = ''
+    usar_ident = None
+    confianca = _confianca(getattr(ident, 'confianca', 0)) if ident is not None else 0
+    limiar = max(0.70, _confianca(config.get('ia_min_confianca') or 0))
+    incertos = {normalizar(str(c)).replace(' ', '_') for c in (getattr(ident, 'campos_incertos', None) or [])}
+    ai_titulo = str(getattr(ident, 'titulo', '') or '').strip()
+    ai_artista = str(getattr(ident, 'artista', '') or '').strip()
+    identidade_revisada = 'titulo' in edicao and 'artista' in edicao
+    if identidade_revisada:
+        # A identidade editada tem prioridade sobre qualquer resposta da IA.
+        pass
+    elif (ident is not None and getattr(ident, 'ok', False) and confianca >= limiar
+            and ai_titulo and ai_artista and not {'titulo', 'artista'}.intersection(incertos)):
+        if 'titulo' not in edicao and versoes(titulo) != versoes(ai_titulo):
+            aviso = 'A versão identificada pela IA difere da música; confira o título antes de buscar a capa.'
+        else:
+            titulo = titulo if 'titulo' in edicao else ai_titulo
+            artista = artista if 'artista' in edicao else ai_artista
+            origem = 'IA + dados revisados' if any(k in edicao for k in ('titulo', 'artista')) else 'IA'
+            if (normalizar(titulo) == normalizar(ai_titulo)
+                    and normalizar(artista) == normalizar(ai_artista)):
+                usar_ident = ident
+            if (normalizar(titulo) != normalizar(meta.titulo or '')
+                    or normalizar(artista) != normalizar(meta.artista or '')):
+                aviso = ('A identidade usada para a capa difere dos metadados do arquivo. '
+                         'Confira ambos antes de confirmar a capa.')
+    elif ident is not None:
+        aviso = 'IA sem título e artista confiáveis; usando os dados disponíveis para procurar a capa.'
+    elif config.get('ia_ativa'):
+        aviso = 'IA não disponível; usando os dados disponíveis para procurar a capa.'
+    else:
+        aviso = 'IA desativada; usando os dados disponíveis para procurar a capa.'
+    # Normalização somente para um nome de canal não revisado: a identidade
+    # mostrada na tela é exatamente a identidade usada na chamada ao catálogo.
+    if not origem.startswith('IA') and 'artista' not in edicao:
+        from .texto import parece_canal, separar_artista_titulo
+        if artista and parece_canal(artista):
+            candidato, resto = separar_artista_titulo(titulo)
+            if candidato and resto and not parece_canal(candidato):
+                artista, titulo = candidato, resto
+    return {'titulo': titulo, 'artista': artista, 'origem': origem, 'aviso': aviso}, usar_ident
+
+
 def preparar_musica(resultado: TrackResult, config: Config, progresso=None,
                      edicao=None, sem_capa: bool = False) -> Dict[str, Any]:
     """Identifica a faixa e busca capas; não chama a fonte nem baixa áudio.
@@ -57,10 +113,20 @@ def preparar_musica(resultado: TrackResult, config: Config, progresso=None,
         ident = identificador.identificar(consulta, config, progresso)
     meta = pipeline.montar_metadados(consulta, config, progresso=progresso, ident=ident)
     apagar_tags = aplicar_edicao(meta, edicao)
+    consulta_capa = None
     if sem_capa:
         from .models import CoverResult
         capa = CoverResult(observacao='Usuário escolheu não usar capa no lote')
     else:
-        capa = pipeline.buscar_capa(meta, config,
-            resultado.thumb_url or resultado.extra.get('thumb', ''), progresso, ident=ident)
-    return {'meta': meta, 'ident': ident, 'capa': capa, 'apagar_tags': apagar_tags}
+        consulta_capa, ident_capa = identidade_para_capa(meta, ident, config, edicao)
+        # Uma consulta por item, sem compartilhar ou alterar os metadados.
+        meta_consulta = replace(meta, titulo=consulta_capa['titulo'], artista=consulta_capa['artista'])
+        from .texto import normalizar
+        if (normalizar(consulta_capa['titulo']) != normalizar(meta.titulo)
+                or normalizar(consulta_capa['artista']) != normalizar(meta.artista)):
+            meta_consulta = replace(meta_consulta, album='', ano=None)
+        capa = pipeline.buscar_capa(meta_consulta, config,
+            resultado.thumb_url or resultado.extra.get('thumb', ''), progresso, ident=ident_capa,
+            interpretar_canal=False)
+    return {'meta': meta, 'ident': ident, 'capa': capa, 'apagar_tags': apagar_tags,
+            'consulta_capa': consulta_capa}

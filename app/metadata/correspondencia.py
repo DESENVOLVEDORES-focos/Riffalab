@@ -51,6 +51,17 @@ def _ano_pontos(ano: Optional[int], outro: Optional[int]) -> float:
     return 0.0
 
 
+def versoes(texto: str) -> set[str]:
+    """Marcadores de versão que não podem ser trocados silenciosamente."""
+    import re
+    texto = normalizar(texto or "")
+    return {rotulo for rotulo, padrao in (
+        ("live", r"\b(?:live|ao vivo|en vivo)\b"),
+        ("remix", r"\bremix\b"), ("karaoke", r"\bkaraoke\b"),
+        ("instrumental", r"\binstrumental\b"),
+        ("acustico", r"\b(?:acoustic|acustico)\b")) if re.search(padrao, texto)}
+
+
 def pontuar(titulo: str, artista: str = "", album: str = "",
             ano: Optional[int] = None, isrc: str = "", mbid: str = "",
             cand: Optional[Dict[str, Any]] = None,
@@ -90,14 +101,6 @@ def pontuar(titulo: str, artista: str = "", album: str = "",
         aprovado = False
         motivos.append(f"título diferente ({s_titulo:.2f})")
     # "Música (ao vivo)" não é automaticamente a gravação de estúdio.
-    import re
-    def versoes(texto):
-        texto = normalizar(texto or "")
-        return {rotulo for rotulo, padrao in (
-            ("live", r"\b(?:live|ao vivo|en vivo)\b"),
-            ("remix", r"\bremix\b"), ("karaoke", r"\bkaraoke\b"),
-            ("instrumental", r"\binstrumental\b"),
-            ("acustico", r"\b(?:acoustic|acustico)\b")) if re.search(padrao, texto)}
     if versoes(titulo) != versoes(cand.get("titulo")):
         aprovado = False
         motivos.append("versão da faixa diferente")

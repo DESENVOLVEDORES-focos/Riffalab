@@ -493,7 +493,10 @@ class DownloadsPage(QWidget):
             linha.definir_preparacao(dados)
             self._proxima_capa()
             return
-        dialogo = DialogoCapas(self, capa, {'titulo': meta.titulo, 'artista': meta.artista,
+        consulta = dados.get('consulta_capa') or {}
+        dialogo = DialogoCapas(self, capa, {'titulo': consulta.get('titulo', meta.titulo),
+                                            'artista': consulta.get('artista', meta.artista),
+                                            'consulta_capa': consulta,
                                             'album': meta.album, 'ano': meta.ano,
                                             'fontes_capa': self.config.get('fontes_capa')})
         if dialogo.exec() != QDialog.Accepted:

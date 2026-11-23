@@ -21,7 +21,7 @@ from typing import Any, Dict
 
 APP_NOME = "RiffLab"
 APP_SUB = "pesquisa · qualidade · metadados"
-APP_VERSAO = "0.6.6"
+APP_VERSAO = "0.6.7"
 
 # ------------------------------------------------------------------ caminhos
 def _raiz() -> Path:

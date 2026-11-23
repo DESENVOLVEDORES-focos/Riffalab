@@ -32,14 +32,24 @@ def imagens(release_id: str = "", release_group: str = "",
             incluir_nao_frontais: bool = False) -> List[Dict[str, Any]]:
     if not release_id and not release_group:
         return []
-    try:
-        todas = musicbrainz.capas_release(release_id=release_id,
-                                          release_group=release_group)
-    except Exception:                                             # noqa: BLE001
-        return []
     if incluir_nao_frontais:
-        return todas
-    return [img for img in todas if _frontal_aceita(img)]
+        try:
+            return musicbrainz.capas_release(release_id=release_id, release_group=release_group)
+        except Exception:                                         # noqa: BLE001
+            return []
+    # Uma edição pode ter apenas contracapa. Isso não deve impedir a busca
+    # pela capa frontal do mesmo grupo de lançamento (single).
+    for rel, grupo in ((release_id, ""), ("", release_group)):
+        if not rel and not grupo:
+            continue
+        try:
+            todas = musicbrainz.capas_release(release_id=rel, release_group=grupo)
+        except Exception:                                         # noqa: BLE001
+            continue
+        frontais = [img for img in todas if _frontal_aceita(img)]
+        if frontais:
+            return frontais
+    return []
 
 
 def melhor_frontal(release_id: str = "", release_group: str = "") -> Optional[Dict[str, Any]]:

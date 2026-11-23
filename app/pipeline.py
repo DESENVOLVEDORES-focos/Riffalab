@@ -147,13 +147,18 @@ def buscar_capa(meta: TrackMeta, config: Config, thumb_extra: str = "",
     # busca pegar a capa de OUTRA música com o mesmo nome. Nesses casos tenta o
     # "Artista - Título" que costuma vir no nome do vídeo.
     artista_capa = meta.artista or ""
+    titulo_capa = meta.titulo or ""
     if artista_capa and parece_canal(artista_capa):
-        candidato, _ = separar_artista_titulo(meta.titulo or "")
-        if candidato and not parece_canal(candidato):
+        candidato, titulo_separado = separar_artista_titulo(titulo_capa)
+        if candidato and titulo_separado and not parece_canal(candidato):
+            # Usar a parte da música na consulta: pesquisar o título completo
+            # com o artista novamente pode excluir o single dos catálogos.
+            # Não altera o título nem o artista salvos nos metadados.
             artista_capa = candidato
+            titulo_capa = titulo_separado
     try:
         capa = covers.encontrar_capa(
-            meta.titulo or "", artista_capa, meta.album or "", meta.ano,
+            titulo_capa, artista_capa, meta.album or "", meta.ano,
             fontes=config.get("fontes_capa"),
             minimo_lado=int(config.get("tamanho_minimo_capa") or 300),
             thumb_extra=thumb_extra,

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame
 
 from ... import visualizador_mp3
 from ...config import Config
+from ...models import hhmmss
 from ...workers import EXECUTOR_GLOBAL
 from ..theme import PALETA
 
@@ -239,7 +240,14 @@ class MP3ViewerPage(QWidget):
         if self._encerrando or geracao != self._geracao_detalhe:
             return
         self.lbl_titulo.setText(' — '.join(filter(None, [dados['artista'], dados['titulo']])))
-        self.lbl_album.setText('Álbum: ' + (dados['album'] or 'não informado'))
+        self.lbl_album.setText('\n'.join([
+            'Álbum: ' + (dados['album'] or 'não informado'),
+            'Artista do álbum: ' + (dados.get('artista_album') or 'não informado'),
+            'Gênero: ' + (dados.get('genero') or 'não informado'),
+            'Ano: ' + (dados.get('ano') or 'não informado'),
+            'Faixa: ' + (dados.get('faixa') or 'não informada'),
+            'Duração: ' + (hhmmss(dados['duracao_s']) if dados.get('duracao_s') else 'não disponível'),
+        ]))
         self.lbl_caminho.setText(dados['caminho'])
         self._imagens = dados['imagens']
         self.seletor.blockSignals(True)

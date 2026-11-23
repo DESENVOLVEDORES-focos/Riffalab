@@ -22,7 +22,7 @@ def gravar(caminho: str | Path, meta: TrackMeta, id3v1: bool = True,
     antigos) e opcionalmente acrescenta ID3v1.
     """
     from mutagen.id3 import (APIC, ID3, TALB, TCOM, TCON, TDRC, TEXT, TIPL, TIT2,
-                             TPE1, TPE2, TPOS, TPRO, TPUB, TRCK, TYER,
+                             TPE1, TPE2, TPOS, TPRO, TPUB, TRCK, TYER, TLEN,
                              ID3NoHeaderError)
 
     p = Path(caminho)
@@ -36,13 +36,18 @@ def gravar(caminho: str | Path, meta: TrackMeta, id3v1: bool = True,
 
     # Campos vazios preservam tags originais, exceto se o usuário pediu
     # explicitamente para limpar um campo no editor.
-    if 'album' in (apagar_campos or ()):
-        tags.delall('TALB')
+    frames = {'album': 'TALB', 'genero': 'TCON', 'ano': 'TDRC',
+              'faixa': 'TRCK', 'artista_album': 'TPE2', 'duracao_s': 'TLEN'}
+    for campo in apagar_campos or ():
+        if campo in frames:
+            tags.delall(frames[campo])
+        if campo == 'ano':
+            tags.delall('TYER')
     if meta.titulo:
         tags.add(TIT2(encoding=3, text=meta.titulo))
     if meta.artista:
         tags.add(TPE1(encoding=3, text=meta.artista))
-        # TPE2 = "álbum artist": a banda/artista do disco, quando conhecido
+    if meta.artista_album or (meta.artista and 'artista_album' not in (apagar_campos or ())):
         tags.add(TPE2(encoding=3, text=meta.artista_album or meta.artista))
     if meta.album:
         tags.add(TALB(encoding=3, text=meta.album))
@@ -62,13 +67,23 @@ def gravar(caminho: str | Path, meta: TrackMeta, id3v1: bool = True,
         tags.add(TPUB(encoding=3, text=meta.gravadora))          # gravadora
     if meta.genero:
         tags.add(TCON(encoding=3, text=meta.genero))
-    if meta.artistas_participantes:
-        # participações entram no título do artista, como "A feat. B"
-        extra = ", ".join(meta.artistas_participantes[:4])
-        if extra:
-            atual = meta.artista or ""
-            if normalizar(extra) not in normalizar(atual):
-                tags.add(TPE1(encoding=3, text=f"{atual} feat. {extra}".strip()))
+    if meta.artistas_participantes and meta.artista:
+        # TPE1 é o campo "Artistas participantes" do Explorer. Preservar a
+        # grafia e todas as participações, sem repetir nomes já creditados.
+        import re
+        atual = meta.artista
+        existentes = normalizar(atual)
+        nomes = []
+        for nome in meta.artistas_participantes:
+            nome = str(nome).strip()
+            chave = normalizar(nome)
+            if chave and not re.search(r'(?<!\w)' + re.escape(chave) + r'(?!\w)', existentes):
+                nomes.append(nome)
+                existentes += ' ' + chave
+        if nomes:
+            tags.add(TPE1(encoding=3, text=atual + ' feat. ' + ', '.join(nomes)))
+    if meta.duracao_s is not None and 0 < meta.duracao_s < 7 * 24 * 3600:
+        tags.add(TLEN(encoding=3, text=str(round(meta.duracao_s * 1000))))
     if meta.faixa:
         texto = f"{meta.faixa}/{meta.total_faixas}" if meta.total_faixas else str(meta.faixa)
         tags.add(TRCK(encoding=3, text=texto))
@@ -130,7 +145,7 @@ def ler(caminho: str | Path) -> dict:
         "genero": _txt("TCON"), "disco": _txt("TPOS"),
         "compositor": _txt("TCOM"), "letrista": _txt("TEXT"),
         "gravadora": _txt("TPUB"), "produtor": _txt("TPRO") or _txt("IPLS"),
-        "artista_album": _txt("TPE2"),
+        "artista_album": _txt("TPE2"), "duracao_ms": _txt("TLEN"),
         "tem_capa": bool(apics), "capa_bytes": len(apics[0].data) if apics else 0,
     }
 

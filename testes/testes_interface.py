@@ -1089,6 +1089,73 @@ class Interface(unittest.TestCase):
             servidor.server_close()
             thread.join()
 
+    def test_revisao_de_metadados_preparados_e_persistencia(self):
+        from app.models import CoverResult, TrackMeta, TrackResult
+        from app.ui.pages import downloads_page
+        d = self.janela.pagina_downloads
+        d.adicionar_selecao({'resultado': TrackResult('1','ytdlp','Canção','Pessoa',duracao_s=200)})
+        linha = d.selecoes[-1]
+        meta = TrackMeta(titulo='Canção', artista='Pessoa', album='Disco', genero='Rock',
+                         ano=2001, faixa=4, artista_album='Pessoa', artistas_participantes=['Outra'])
+        prep = {'meta':meta, 'capa':CoverResult(), 'ident':None}
+        linha.definir_preparacao(prep)
+        self.assertIn('Faixa: 4', linha.detalhes.text())
+        dialogo = downloads_page.DialogoEditarDados(linha, self.janela)
+        self.assertEqual(dialogo.campos['artistas_participantes'].text(), 'Outra')
+        self.assertEqual(dialogo.campos['artista_album'].text(), 'Pessoa')
+        dialogo.campos['genero'].setText('Jazz')
+        dialogo.campos['faixa'].setText('8')
+        dialogo.campos['ano'].setText('')
+        dialogo.exec = lambda: QDialog.Accepted
+        with patch.object(downloads_page, 'DialogoEditarDados', return_value=dialogo):
+            d._editar_dados(linha)
+        self.assertIs(linha.preparacao, prep)
+        self.assertEqual((meta.genero, meta.faixa, meta.ano), ('Jazz',8,None))
+        self.assertIn('ano', prep['apagar_tags'])
+        dados = self.banco.ler_estado('downloads_selecionados')[-1]
+        from app.estado_musicas import desserializar_selecao
+        _, _, restaurada = desserializar_selecao(dados)
+        self.assertEqual((restaurada['meta'].genero, restaurada['meta'].faixa), ('Jazz',8))
+        self.assertIn('ano', restaurada['apagar_tags'])
+        dialogo.deleteLater()
+
+    def test_mudar_identidade_exige_capa_nova_e_nao_herda_faixa_antiga(self):
+        from app.models import CoverResult, TrackMeta, TrackResult
+        from app.ui.pages import downloads_page
+        d = self.janela.pagina_downloads
+        d.adicionar_selecao({'resultado': TrackResult('1','ytdlp','Canção','Pessoa')})
+        linha = d.selecoes[-1]
+        linha.definir_preparacao({'meta':TrackMeta(titulo='Canção',artista='Pessoa',album='Disco',
+            genero='Rock',ano=2001,faixa=8,artista_album='Pessoa'), 'capa':CoverResult(), 'ident':None})
+        dialogo = downloads_page.DialogoEditarDados(linha, self.janela)
+        dialogo.campos['titulo'].setText('Outra canção')
+        dialogo.campos['genero'].setText('Jazz')
+        dialogo.exec = lambda: QDialog.Accepted
+        with patch.object(downloads_page, 'DialogoEditarDados', return_value=dialogo):
+            d._editar_dados(linha)
+        self.assertIsNone(linha.preparacao)
+        self.assertEqual(linha.pedido['edicao']['genero'], 'Jazz')
+        self.assertNotIn('faixa', linha.pedido['edicao'])
+        self.assertNotIn('ano', linha.pedido['edicao'])
+        dialogo.deleteLater()
+
+    def test_editor_antes_da_preparacao_nao_congela_opcionais_desconhecidos(self):
+        from app.models import TrackResult
+        from app.ui.pages.downloads_page import DialogoEditarDados
+        d = self.janela.pagina_downloads
+        d.adicionar_selecao({'resultado':TrackResult('1','ytdlp','Música','Pessoa')})
+        dialogo = DialogoEditarDados(d.selecoes[-1], self.janela)
+        self.assertNotIn('faixa', dialogo.valores())
+        self.assertNotIn('album', dialogo.valores())
+        self.assertNotIn('artista_album', dialogo.valores())
+        self.assertNotIn('genero', dialogo.valores())
+        dialogo.campos['faixa'].setText('não sei')
+        with patch('app.ui.pages.downloads_page.QMessageBox.warning') as aviso:
+            dialogo._validar()
+        aviso.assert_called_once()
+        self.assertNotEqual(dialogo.result(), QDialog.Accepted)
+        dialogo.deleteLater()
+
     def test_editar_e_preparar_sem_capa_no_lote(self):
         from app.models import CoverResult, TrackMeta, TrackResult
         from app.ui.pages import downloads_page

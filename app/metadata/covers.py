@@ -152,25 +152,43 @@ def metadados_completos(titulo: str, artista: str = "", album: str = "",
     """Cruza iTunes + MusicBrainz para preencher o máximo de metadados."""
     dados: Dict[str, Any] = {"titulo": titulo, "artista": artista, "album": album,
                              "ano": ano, "faixa": None, "total_faixas": None,
-                             "disco": None, "genero": "", "fontes": []}
+                             "disco": None, "genero": "", "artista_album": "", "fontes": []}
     try:
         it = itunes.melhor_faixa(titulo, artista, album)
     except Exception:
         it = None
     if it:
+        from .correspondencia import pontuar
+        if not pontuar(titulo, artista, album, cand=it).aprovado:
+            it = None
+    if it:
         dados["fontes"].append("itunes")
-        for chave in ("titulo", "artista", "album", "ano", "faixa", "total_faixas", "disco", "genero"):
+        # Só normalizar a identidade com uma correspondência forte e a mesma versão.
+        from ..texto import similaridade
+        from .correspondencia import pontuar
+        if (titulo and artista and similaridade(titulo, it.get("titulo") or "") >= .90
+                and similaridade(artista, it.get("artista") or "") >= .90
+                and pontuar(titulo, artista, cand=it).aprovado):
+            dados["titulo"] = it.get("titulo") or titulo
+            dados["artista"] = it.get("artista") or artista
+        for chave in ("titulo", "artista", "album", "ano", "faixa", "total_faixas", "disco", "genero", "artista_album"):
             if not dados.get(chave) and it.get(chave):
                 dados[chave] = it[chave]
         dados["capa_url"] = it.get("capa_url")
 
-    if not dados.get("album") or not dados.get("faixa"):
+    if not dados.get("album") or not dados.get("faixa") or not dados.get("genero") or not dados.get("artista_album"):
         try:
             for grav in musicbrainz.buscar_gravacao(titulo, artista, album, limite=3):
+                from ..texto import similaridade
+                from .correspondencia import pontuar
+                if not pontuar(titulo, artista, cand=grav).aprovado:
+                    continue
+                if dados.get("album") and similaridade(dados["album"], grav.get("album") or "") < .80:
+                    continue
                 det = musicbrainz.detalhes_release(grav.get("release_id", ""), titulo) if grav.get("release_id") else {}
                 if det:
                     dados["fontes"].append("musicbrainz")
-                    for chave in ("album", "ano", "faixa", "total_faixas", "genero"):
+                    for chave in ("album", "ano", "faixa", "total_faixas", "genero", "artista_album"):
                         if not dados.get(chave) and det.get(chave):
                             dados[chave] = det[chave]
                     break

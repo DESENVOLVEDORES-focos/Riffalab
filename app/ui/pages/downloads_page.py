@@ -15,8 +15,8 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout
 from ... import estado_musicas
 from ...config import Config
 from ...downloader import GerenciadorFila
-from ...models import CoverResult
-from ...preparacao import preparar_musica
+from ...models import CoverResult, hhmmss
+from ...preparacao import preparar_musica, aplicar_edicao
 from ...workers import EXECUTOR_GLOBAL
 from ..dialogos import DialogoCapas
 from ..theme import PALETA, alfa
@@ -182,20 +182,30 @@ class LinhaSelecao(QFrame):
         fmt = self.pedido.get('formato')
         audio = 'Melhor áudio disponível' if not fmt or fmt.format_id == 'bestaudio' else fmt.descricao_curta()
         detalhe = f"capa: {capa.album or capa.fonte}" if capa.ok else 'sem capa (escolha confirmada)'
-        self.detalhes.setText(f'{audio} · {detalhe}')
+        campos = [f"Álbum: {meta.album or 'não identificado'}",
+                  f"Gênero: {meta.genero or 'não identificado'}",
+                  f"Ano: {meta.ano or 'não identificado'}",
+                  f"Faixa: {meta.faixa or 'não identificada'}",
+                  f"Artista do álbum: {meta.artista_album or 'não identificado'}",
+                  f"Participações: {', '.join(meta.artistas_participantes) or 'não identificadas'}"]
+        self.detalhes.setText(f"{audio} · {detalhe}\n" + ' · '.join(campos) +
+                              '\nDuração final medida após a conversão. Revise em Editar dados.')
         self.btn_capa.setText('Trocar capa')
         self.alterada.emit()
 
 
 class DialogoEditarDados(QDialog):
-    """Edição explícita do título, artista e álbum antes da preparação."""
+    """Revisão de metadados antes de iniciar o download."""
     def __init__(self, linha: LinhaSelecao, pai=None):
         super().__init__(pai)
         self.setWindowTitle('Editar dados da música')
         self.setMinimumWidth(460)
         raiz = QVBoxLayout(self)
-        aviso = QLabel('Os dados editados serão usados nas tags e no nome/pasta do arquivo. '
-                       'Ao alterá-los, a capa precisa ser revisada novamente.')
+        aviso = QLabel('Confira os dados: IA e catálogos podem errar. Título e artista definem '
+                       'o arquivo e a pasta. Antes de preparar, campos vazios serão procurados; '
+                       'apagar um valor conhecido o remove. Depois de preparar, apagar um campo o deixa vazio. '
+                       'Se mudar título, artista ou álbum, '
+                       'revise a capa novamente.')
         aviso.setWordWrap(True)
         raiz.addWidget(aviso)
         formulario = QFormLayout()
@@ -203,11 +213,21 @@ class DialogoEditarDados(QDialog):
         meta = linha.preparacao.get('meta') if linha.preparacao else None
         edicao = linha.pedido.get('edicao') or {}
         self.campos = {}
-        for chave, rotulo in [('titulo', 'Título'), ('artista', 'Artista'), ('album', 'Álbum')]:
+        for chave, rotulo in [('titulo', 'Título'), ('artista', 'Artista principal'),
+                              ('artistas_participantes', 'Participações (separadas por vírgula)'),
+                              ('album', 'Álbum'), ('genero', 'Gênero'), ('ano', 'Ano'),
+                              ('faixa', 'Número da faixa'), ('artista_album', 'Artista do álbum')]:
             valor = edicao.get(chave, getattr(meta or r, chave, '') or '')
+            if isinstance(valor, list):
+                valor = ', '.join(valor)
             campo = QLineEdit(str(valor))
             self.campos[chave] = campo
             formulario.addRow(rotulo, campo)
+        duracao = hhmmss(r.duracao_s) if r.duracao_s else 'não informada'
+        formulario.addRow('Duração', QLabel(f'{duracao} (origem; MP3 final será medido)'))
+        self._ja_preparada = meta is not None
+        self._editados_anteriores = set(edicao)
+        self._valores_iniciais = {k: c.text().strip() for k, c in self.campos.items()}
         raiz.addLayout(formulario)
         botoes = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         botoes.accepted.connect(self._validar)
@@ -215,13 +235,26 @@ class DialogoEditarDados(QDialog):
         raiz.addWidget(botoes)
 
     def valores(self) -> dict:
-        return {k: c.text().strip() for k, c in self.campos.items()}
+        dados = {k: c.text().strip() for k, c in self.campos.items()}
+        # Um campo opcional vazio antes da primeira preparação significa
+        # "procure", não "apague". Depois, vazio é uma remoção explícita.
+        return {k: v for k, v in dados.items() if v or k in ('titulo', 'artista')
+                or self._ja_preparada or k in self._editados_anteriores
+                or bool(self._valores_iniciais.get(k))}
+
+    def campos_alterados(self) -> set[str]:
+        return {k for k, c in self.campos.items() if c.text().strip() != self._valores_iniciais[k]}
 
     def _validar(self) -> None:
         dados = self.valores()
         if not dados['titulo'] or not dados['artista']:
             QMessageBox.warning(self, 'Dados incompletos', 'Informe título e artista.')
             return
+        for campo, limite, rotulo in (('ano', 9999, 'ano'), ('faixa', 999, 'número da faixa')):
+            valor = dados.get(campo, '')
+            if valor and (not valor.isdecimal() or not 1 <= int(valor) <= limite):
+                QMessageBox.warning(self, 'Dados inválidos', f'Informe um {rotulo} válido ou deixe vazio.')
+                return
         self.accept()
 
 
@@ -378,11 +411,26 @@ class DownloadsPage(QWidget):
         if dialogo.exec() != QDialog.Accepted:
             return
         edicao = dialogo.valores()
+        preparacao = linha.preparacao
+        identidade_mudou = preparacao and any(
+            str(edicao.get(c, '')).strip() != str(getattr(preparacao['meta'], c, '') or '').strip()
+            for c in ('titulo', 'artista', 'album'))
+        if identidade_mudou:
+            alterados = dialogo.campos_alterados()
+            if isinstance(alterados, (set, list, tuple)):
+                # Não carregar automaticamente faixa/ano/gênero da edição
+                # anterior para uma identidade ou álbum modificado.
+                edicao = {k: v for k, v in edicao.items()
+                          if k in ('titulo', 'artista', 'album') or k in alterados}
         linha.pedido['edicao'] = edicao
-        linha.preparacao = None
-        linha.nome.setText(f"{edicao['artista']} — {edicao['titulo']}")
-        linha.detalhes.setText('Dados editados · escolha ou dispense a capa novamente')
-        linha.btn_capa.setText('Escolher capa')
+        if preparacao and not identidade_mudou:
+            preparacao['apagar_tags'] = aplicar_edicao(preparacao['meta'], edicao)
+            linha.definir_preparacao(preparacao)
+        else:
+            linha.preparacao = None
+            linha.nome.setText(f"{edicao['artista']} — {edicao['titulo']}")
+            linha.detalhes.setText('Dados editados · escolha ou dispense a capa novamente')
+            linha.btn_capa.setText('Escolher capa')
         self._selecao_alterada()
 
     def _preparar_uma(self, linha: LinhaSelecao) -> None:

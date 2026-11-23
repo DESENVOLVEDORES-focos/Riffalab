@@ -69,7 +69,7 @@ def _texto_para_analise(r: TrackResult) -> str:
     """Texto onde procurar os indícios de ao vivo.
 
     Usa o título ORIGINAL do vídeo (`extra["titulo_original"]`) além do título
-    já limpo: `limpar_titulo` remove parênteses e apagaria justamente
+    já limpo: versões antigas de `limpar_titulo` removiam parênteses e apagavam justamente
     "(Live at Wembley)" / "(Ao Vivo)" — que são a pista mais forte.
     """
     extra = r.extra or {}

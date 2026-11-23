@@ -72,7 +72,8 @@ def desserializar_selecao(d: dict) -> tuple[dict, bool, dict | None]:
         capa = _construir(CoverResult, p['capa'])
         # Capas removidas não podem ser aceitas silenciosamente.
         if not capa.ok or Path(capa.caminho).is_file():
-            apagar = [x for x in p.get('apagar_tags', []) if x == 'album']
+            from .preparacao import CAMPOS_REMOVIVEIS
+            apagar = [x for x in p.get('apagar_tags', []) if x in CAMPOS_REMOVIVEIS]
             # Migração de seleções preparadas pela versão anterior, que já
             # guardava a edição mas ainda não registrava remoção da tag.
             edicao = pedido.get('edicao') or {}

@@ -1,25 +1,8 @@
-"""Identificação musical com a Groq + conferência na MusicBrainz.
+"""Identificação opcional por IA, com conferência parcial no MusicBrainz.
 
-Divisão de responsabilidades (proposta §7):
-
-    yt-dlp    → acha o vídeo e o melhor áudio   (não muda nada aqui)
-    FFmpeg    → converte para MP3               (não muda nada aqui)
-    GROQ      → identifica a música e o álbum   (este módulo)
-    MusicBrainz / Cover Art Archive
-              → CONFIRMA o álbum e fornece a capa oficial
-    Mutagen   → grava os metadados              (não muda nada aqui)
-
-Regra contra invenção: o modelo é instruído a devolver `null` quando não sabe,
-e o que ele responde passa por três filtros antes de virar tag:
-
-1. **saneamento** (`_limpar`): tipos, faixas de valor, texto vazio → vazio;
-2. **conferência na MusicBrainz**: se o álbum não existir lá com aquele artista,
-   o dado continua marcado como NÃO verificado (e a capa não é usada);
-3. **prioridade**: o que veio da IA só sobrescreve título/artista se o campo
-   estiver coerente; nunca apaga informação confirmada por iTunes/MusicBrainz.
-
-Sem chave ou com a IA desligada, `identificar()` devolve `ok=False` e o pipeline
-segue o caminho antigo — o download nunca quebra por causa da IA.
+A IA recebe textos, não escuta o áudio e pode errar. A correspondência de um
+álbum e artista não comprova a gravação ou os demais campos; a interface deve
+permitir revisão humana. Falhas da API não impedem a preparação com catálogos.
 """
 from __future__ import annotations
 
@@ -30,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from ..config import Config
 from ..models import Identificacao, TrackResult
 from ..metadata import musicbrainz
-from ..texto import normalizar
+from ..texto import normalizar, similaridade
 from . import cliente_groq
 
 SISTEMA = (
@@ -51,7 +34,8 @@ SISTEMA = (
     "Acoustic, Cover, Remix, Demo, Instrumental, Edit) e preencha 'versao' com "
     "um destes valores: estudio, ao vivo, remaster, acustico, cover, remix, "
     "demo, instrumental, edit, desconhecido.\n"
-    "5. 'artistas_participantes' são convidados/featuring creditados; não repita "
+    "5. 'artista_album' é o crédito do álbum e pode diferir de banda ou artista; "
+    "devolva null se não souber. 'artistas_participantes' são convidados/featuring creditados; não repita "
     "o artista principal.\n"
     "6. 'confianca' é sua confiança real na identificação como um todo, de 0 a 1.\n"
     "7. Liste em 'campos_incertos' o nome dos campos que você preencheu com menos "
@@ -64,7 +48,7 @@ ESQUEMA: Dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": ["identificado", "confianca", "titulo", "artista", "banda",
-                 "artistas_participantes", "compositores", "letristas", "produtores",
+                 "artistas_participantes", "artista_album", "compositores", "letristas", "produtores",
                  "album", "ano", "data_lancamento", "genero", "faixa", "gravadora",
                  "isrc", "mbid_gravacao", "versao", "campos_incertos", "observacoes"],
     "properties": {
@@ -73,6 +57,7 @@ ESQUEMA: Dict[str, Any] = {
         "titulo": {"type": ["string", "null"]},
         "artista": {"type": ["string", "null"]},
         "banda": {"type": ["string", "null"]},
+        "artista_album": {"type": ["string", "null"]},
         "artistas_participantes": {"type": "array", "items": {"type": "string"}},
         "compositores": {"type": "array", "items": {"type": "string"}},
         "letristas": {"type": "array", "items": {"type": "string"}},
@@ -114,6 +99,15 @@ def _lista(valor: Any) -> List[str]:
     return saida
 
 
+def _confianca(valor: Any) -> float:
+    import math
+    try:
+        valor = float(valor)
+        return max(0.0, min(1.0, valor)) if math.isfinite(valor) else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def _ano(valor: Any) -> Optional[int]:
     try:
         numero = int(str(valor)[:4])
@@ -141,7 +135,7 @@ def montar_pedido(resultado: TrackResult) -> str:
     """Só o necessário — nunca cookies, nunca credenciais (proposta §9)."""
     dados = {
         "titulo_do_video": resultado.titulo,
-        "canal": resultado.extra.get("canal") or resultado.artista,
+        "canal": resultado.canal or resultado.extra.get("canal") or resultado.artista,
         "url": resultado.pagina_url,
         "duracao_segundos": int(resultado.duracao_s or 0),
         "titulo_sugerido_pela_busca": resultado.titulo,
@@ -164,7 +158,13 @@ def _conferir_musicbrainz(ident: Identificacao) -> None:
     if not grupos:
         ident.campos_incertos = sorted(set(ident.campos_incertos + ["album"]))
         return
-    melhor = grupos[0]
+    # O nome do álbum sozinho não prova o intérprete nem a gravação.
+    melhor = next((g for g in grupos if g.get('artista') and
+                   similaridade(ident.artista, g['artista']) >= .85 and
+                   similaridade(ident.album, g.get('album') or '') >= .85), None)
+    if not melhor:
+        ident.campos_incertos = sorted(set(ident.campos_incertos + ["album"]))
+        return
     ident.verificado_musicbrainz = True
     ident.mbid_release_group = melhor.get("mbid") or ""
     # a MusicBrainz é a fonte de verdade do nome do álbum
@@ -203,10 +203,11 @@ def identificar(resultado: TrackResult, config: Config,
         ok=bool(bruto.get("identificado")),
         origem="groq",
         modelo=modelo,
-        confianca=max(0.0, min(1.0, float(bruto.get("confianca") or 0))),
+        confianca=_confianca(bruto.get("confianca")),
         titulo=_texto(bruto.get("titulo")),
         artista=_texto(bruto.get("artista")),
         banda=_texto(bruto.get("banda")),
+        artista_album=_texto(bruto.get("artista_album")),
         artistas_participantes=_lista(bruto.get("artistas_participantes")),
         compositores=_lista(bruto.get("compositores")),
         letristas=_lista(bruto.get("letristas")),

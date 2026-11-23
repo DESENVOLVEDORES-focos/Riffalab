@@ -9,15 +9,6 @@ from typing import Optional
 _RE_NAO_ALNUM = re.compile(r"[^a-z0-9 ]+")
 _RE_ESPACOS = re.compile(r"\s+")
 
-# ruídos comuns em nomes vindos de plataformas de vídeo
-_RUIDOS = re.compile(
-    r"\b(official\s*(music\s*)?video|official\s*audio|lyric\s*video|lyrics?|audio|"
-    r"hd|hq|remaster(ed)?|official|videoclipe|clipe\s*oficial|ao\s*vivo|live|"
-    r"full\s*album|visualizer|legendado|tradu[çc][ãa]o)\b",
-    re.IGNORECASE,
-)
-
-
 def normalizar(texto: str) -> str:
     """minúsculas, sem acento, sem pontuação — para comparação."""
     if not texto:
@@ -60,13 +51,19 @@ def relevancia(consulta: str, *campos: str, pesos=None) -> float:
 
 
 def limpar_titulo(titulo: str) -> str:
-    """Remove 'Official Video', '(Remastered 2011)' etc. de nomes de vídeo."""
+    """Remove apenas marcadores de vídeo, preservando partes do nome da música.
+
+    Remix, feat., versão ao vivo e outras expressões entre parênteses podem
+    fazer parte do título e não podem ser descartadas automaticamente.
+    """
     if not titulo:
         return ""
-    s = titulo
-    s = re.sub(r"[\(\[\{][^\)\]\}]{0,40}[\)\]\}]", " ", s)      # parênteses curtos
-    s = _RUIDOS.sub(" ", s)
-    s = re.sub(r"[-–—|]{2,}", " ", s)
+    ruido = (r"(?:official\s*(?:music\s*)?(?:video|audio)|"
+             r"(?:official\s*)?lyric\s*video|video\s*oficial|clipe\s*oficial|"
+             r"visualizer|hd|hq|4k|lyrics|lyric video|legendado|tradu[çc][ãa]o)")
+    s = re.sub(r"[\(\[\{]\s*" + ruido + r"\s*[\)\]\}]", " ", titulo,
+               flags=re.IGNORECASE)
+    s = re.sub(r"\s+[-–—|]\s*" + ruido + r"\s*$", " ", s, flags=re.IGNORECASE)
     s = _RE_ESPACOS.sub(" ", s).strip(" -–—|.")
     return s or titulo.strip()
 

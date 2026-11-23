@@ -43,8 +43,8 @@ def montar_metadados(resultado: TrackResult, config: Config,
                      ident=None) -> TrackMeta:
     """Cruza fonte + iTunes/MusicBrainz + identificação por IA para fechar os dados.
 
-    Ordem de confiança: identificação confirmada pela IA (que já passou pela
-    MusicBrainz) > iTunes/MusicBrainz > o que veio do vídeo.
+    Dados explícitos do usuário são aplicados na preparação. A IA sugere
+    identidade, os catálogos complementam a edição e tudo requer revisão.
     """
     extra = extra or {}
     titulo = extra.get("titulo") or resultado.titulo
@@ -58,11 +58,32 @@ def montar_metadados(resultado: TrackResult, config: Config,
     album = extra.get("album") or resultado.album
     ano = extra.get("ano") or resultado.ano
 
+    # Antes de consultar catálogos, conferir se a sugestão da IA se refere à
+    # mesma música/versão. Assim a busca pode usar grafia e álbum identificados,
+    # sem consultar o álbum de outra faixa por causa de uma alucinação.
+    usar_ia = (ident is not None and getattr(ident, 'ok', False)
+               and float(getattr(ident, 'confianca', 0) or 0)
+               >= max(0.70, float(config.get('ia_min_confianca') or 0)))
+    incertos = set()
+    if usar_ia:
+        from .texto import normalizar, similaridade
+        from .metadata.correspondencia import pontuar
+        incertos = {normalizar(str(c)).replace(' ', '_') for c in (ident.campos_incertos or [])}
+        artista_consulta = ident.artista if not artista or parece_canal(artista) else artista
+        usar_ia = ('titulo' not in incertos and 'artista' not in incertos
+                   and similaridade(titulo, ident.titulo) >= .70
+                   and pontuar(titulo, artista_consulta,
+                               cand={'titulo': ident.titulo, 'artista': ident.artista}).aprovado)
+    titulo_busca = ident.titulo if usar_ia and ident.titulo else titulo
+    artista_busca = ident.artista if usar_ia and ident.artista else artista
+    album_busca = (ident.album if usar_ia and ident.album and 'album' not in incertos else album)
+    ano_busca = (ident.ano if usar_ia and ident.ano and 'ano' not in incertos
+                  and 'album' not in incertos else ano)
     dados: Dict[str, Any] = {}
     if config.get("gravar_tags", True):
         _emitir(progresso, 52, "consultando metadados…")
         try:
-            dados = covers.metadados_completos(titulo, artista, album, ano)
+            dados = covers.metadados_completos(titulo_busca, artista_busca, album_busca, ano_busca)
         except Exception:
             dados = {}
 
@@ -75,37 +96,47 @@ def montar_metadados(resultado: TrackResult, config: Config,
         total_faixas=dados.get("total_faixas"),
         disco=dados.get("disco"),
         genero=str(extra.get("genero") or dados.get("genero") or "").strip(),
+        artista_album=str(dados.get("artista_album") or "").strip(),
         fonte_identificacao="fonte + " + ("+".join(dados.get("fontes") or []) or "vídeo"),
     )
 
-    # ---------------- identificação por IA (proposta §3, §4 e §5) ----------
-    usar_ia = (ident is not None and getattr(ident, "ok", False)
-               and float(getattr(ident, "confianca", 0) or 0)
-               >= float(config.get("ia_min_confianca") or 0))
+    # IA pode estar incorreta mesmo com confiança alta. Campos explicitamente
+    # incertos não sobrescrevem dados; o usuário pode revisar tudo antes do lote.
     if usar_ia:
-        if ident.titulo:
-            meta.titulo = ident.titulo
-        if ident.artista:
-            meta.artista = ident.artista
-        if ident.album:
-            meta.album = ident.album
-        if ident.ano:
-            meta.ano = ident.ano
-        if ident.genero:
-            meta.genero = ident.genero
-        if ident.faixa:
-            meta.faixa = ident.faixa
-        meta.artista_album = ident.banda or ident.artista
-        meta.artistas_participantes = list(ident.artistas_participantes)
-        meta.compositores = list(ident.compositores)
-        meta.letristas = list(ident.letristas)
-        meta.produtores = list(ident.produtores)
-        meta.gravadora = ident.gravadora
-        meta.data_lancamento = ident.data_lancamento
-        meta.isrc = ident.isrc
+        def certo(chave):
+            return chave not in incertos and bool(getattr(ident, chave, None))
+        # Número e total do catálogo anterior não pertencem necessariamente ao
+        # novo álbum sugerido pela IA. Nunca misturar faixas de edições diferentes.
+        if certo('album') and meta.album and normalizar(ident.album) != normalizar(meta.album):
+            meta.faixa = meta.total_faixas = meta.disco = None
+            meta.ano = None
+            meta.artista_album = ''
+        for chave in ('titulo', 'artista', 'album', 'ano', 'genero', 'faixa'):
+            if not certo(chave) or (chave in ('faixa', 'ano') and 'album' in incertos):
+                continue
+            if chave == 'faixa' and (not certo('album') or
+                    normalizar(ident.album) != normalizar(meta.album)):
+                continue
+            # Para a mesma edição, os números e o gênero do catálogo têm
+            # prioridade; a IA preenche os que permanecerem vazios.
+            if chave in ('faixa', 'ano', 'genero') and getattr(meta, chave, None):
+                continue
+            setattr(meta, chave, getattr(ident, chave))
+        if certo('artista_album') and 'album' not in incertos and not meta.artista_album:
+            meta.artista_album = ident.artista_album
+        for chave in ('artistas_participantes', 'compositores', 'letristas', 'produtores',
+                      'gravadora', 'data_lancamento', 'isrc'):
+            if not certo(chave):
+                continue
+            if chave == 'data_lancamento' and ('album' in incertos or not meta.ano or
+                    str(ident.data_lancamento)[:4] != str(meta.ano)):
+                continue
+            setattr(meta, chave, getattr(ident, chave))
         meta.mbid = ident.mbid_gravacao or ident.mbid_release_group
-        meta.fonte_identificacao = "groq" + (" + musicbrainz"
-                                             if ident.verificado_musicbrainz else "")
+        meta.fonte_identificacao = "groq" + (" + musicbrainz" if ident.verificado_musicbrainz else "")
+    # TPE2 sem identificação específica usa o intérprete como alternativa.
+    meta.artista_album = meta.artista_album or meta.artista
+
     return meta
 
 
@@ -259,6 +290,9 @@ def processar_resultado(
                                           progresso=lambda p, m: _emitir(progresso, 70 + int(p * 0.18), m),
                                           metadados=False)
         mp3_temp = destino_temp
+        # A duração vem do MP3 convertido, não da IA nem da duração do vídeo.
+        duracao_final = audio_probe.analisar(mp3_temp).duracao_s
+        meta.duracao_s = duracao_final if duracao_final and duracao_final > 0 else None
         relatorio["conversao"] = {"acao": conv["acao"], "motivo": conv["motivo"]}
 
         # 5) tags + capa embutida
@@ -271,8 +305,15 @@ def processar_resultado(
             if preparacao is not None and not capa.ok:
                 # Se a origem já era MP3, copiar pode preservar uma capa antiga.
                 tagging.remover_capa(mp3_temp)
+            apagar = list((preparacao or {}).get("apagar_tags", []))
+            # Num MP3 copiado, tags antigas de outra edição não podem preencher
+            # silenciosamente campos que a preparação deixou desconhecidos.
+            if preparacao is not None:
+                for campo in ('album', 'ano', 'faixa', 'genero', 'artista_album', 'duracao_s'):
+                    if not getattr(meta, campo, None) and campo not in apagar:
+                        apagar.append(campo)
             resultado_tags = tagging.gravar(mp3_temp, meta, id3v1=bool(config.get("gravar_id3v1", True)),
-                                            apagar_campos=(preparacao or {}).get("apagar_tags", []))
+                                            apagar_campos=apagar)
             if preparacao is not None and capa.ok and not resultado_tags.get("capa"):
                 raise RuntimeError(resultado_tags.get("aviso_capa") or "Não foi possível gravar a capa escolhida.")
             if meta_sem_capa:

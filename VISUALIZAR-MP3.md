@@ -11,3 +11,5 @@
 Em Downloads, **Preparar selecionadas sem capa** prepara apenas as músicas marcadas na lista, não inicia downloads e não altera MP3s já existentes. O aplicativo confirma a quantidade marcada e desmarcada. Depois de preparar, é preciso clicar em **Baixar selecionadas**. Nas novas conversões preparadas sem capa, o programa remove e verifica as imagens ID3/APIC antes de concluir; se a remoção ou leitura falhar, avisa o erro em vez de concluir silenciosamente. Nenhum arquivo antigo é modificado automaticamente.
 
 Se um player mostrar uma capa onde esta tela indicar ausência de APIC, verifique se você está abrindo o mesmo caminho e considere que o player pode usar uma imagem da pasta ou cache. Não apague arquivos só por esse indício. O visualizador foi testado em Linux/Qt offscreen; o funcionamento no Windows e em aparelhos externos precisa ser confirmado no seu ambiente.
+
+O painel também mostra gênero, ano, número da faixa, artista do álbum e duração medida do MP3 quando disponíveis. O artista exibido é o campo ID3 que pode conter as participações. A leitura não altera o arquivo.

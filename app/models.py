@@ -183,6 +183,7 @@ class TrackMeta:
     origem_capa: str = ""
     fonte_audio: str = ""
     # --- campos detalhados (proposta §3 e §5) ---
+    duracao_s: Optional[float] = None    # medida do arquivo final, não fornecida pela IA
     artista_album: str = ""             # TPE2
     artistas_participantes: List[str] = field(default_factory=list)
     compositores: List[str] = field(default_factory=list)     # TCOM
@@ -201,6 +202,9 @@ class TrackMeta:
         return {
             "titulo": self.titulo, "artista": self.artista, "album": self.album,
             "ano": self.ano, "faixa": self.faixa, "genero": self.genero,
+            "total_faixas": self.total_faixas, "disco": self.disco,
+            "artista_album": self.artista_album, "artistas_participantes": self.artistas_participantes,
+            "duracao_s": self.duracao_s,
             "capa": self.capa, "origem_capa": self.origem_capa,
             "compositores": self.compositores, "letristas": self.letristas,
             "produtores": self.produtores, "gravadora": self.gravadora,
@@ -220,6 +224,7 @@ class Identificacao:
     artista: str = ""
     artistas_participantes: List[str] = field(default_factory=list)
     banda: str = ""
+    artista_album: str = ""            # crédito do álbum, que pode diferir da banda
     compositores: List[str] = field(default_factory=list)
     letristas: List[str] = field(default_factory=list)
     produtores: List[str] = field(default_factory=list)
@@ -256,6 +261,7 @@ class Identificacao:
             "confianca": self.confianca, "titulo": self.titulo, "artista": self.artista,
             "album": self.album, "ano": self.ano, "genero": self.genero,
             "compositores": self.compositores, "produtores": self.produtores,
+            "artista_album": self.artista_album, "artistas_participantes": self.artistas_participantes,
             "versao": self.versao, "verificado_musicbrainz": self.verificado_musicbrainz,
             "campos_incertos": self.campos_incertos, "erro": self.erro,
             "segundos": self.segundos,

@@ -246,19 +246,12 @@ conexão** e podem ser escolhidos no campo **Modelo**.
 
 **O que a IA faz** (e o que ela não faz):
 
-* Recebe **apenas**: título do vídeo, nome do canal, URL de origem, duração e o
-  que a pesquisa já sabia (título/artista sugeridos).
-* Devolve: título oficial, artista, participantes, banda, compositores,
-  autores da letra, produtores, álbum original, ano, data de lançamento, gênero,
-  faixa, gravadora, ISRC/MBID e a versão (estúdio, ao vivo, remaster…).
-* O álbum é **conferido no MusicBrainz**; só com o álbum confirmado a capa
-  oficial é buscada no Cover Art Archive (a miniatura do YouTube não é capa e
-  só entra se você marcar a opção de último recurso).
-* O que ela não confirmou aparece em **Downloads → “IA: …”** e no Histórico:
-  campos vazios ficam vazios — o app **não inventa** metadado.
-* **A IA não baixa nem converte nada**: yt-dlp baixa, FFmpeg converte, Mutagen
-  grava as tags. Se a IA falhar (chave inválida, sem internet, resposta
-  estranha), a música continua sendo processada com os metadados do iTunes.
+* Recebe título, canal, URL, duração e dados sugeridos pela busca, mas não recebe nem escuta o áudio.
+* Tenta sugerir título, artista, participações, artista do álbum, álbum, ano, gênero, número da faixa e outros créditos. A confiança é informada pela própria IA e não prova que os dados estão corretos.
+* O app tenta conferir álbum e artista no MusicBrainz; isso não confirma necessariamente a gravação nem os demais campos. Campos assinalados como incertos não são usados automaticamente. Dados de IA que não combinam com a música ou versão são descartados.
+* Em Downloads, confira os dados após preparar e use **Editar dados** para corrigir. Se faltar algum campo, preencha manualmente; nenhum serviço garante encontrar todos. Artista do álbum pode usar o artista principal como alternativa quando não houver crédito específico.
+* A duração final é medida a partir do MP3 convertido. A IA não baixa nem converte o áudio. Se estiver desligada ou falhar, o app usa os dados disponíveis nos catálogos e na origem.
+* As capas automáticas continuam restritas a candidatos identificados como single; a imagem deve ser revisada. Não há substituição automática pela miniatura do vídeo ou capa de álbum.
 
 **Privacidade / segurança**
 

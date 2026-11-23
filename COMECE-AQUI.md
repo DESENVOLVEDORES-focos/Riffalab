@@ -50,3 +50,9 @@ No cartão de pesquisa, use **Comparar formatos** para ver os dados informados d
 ### Visualizar MP3 e capas gravadas
 
 No menu **Ver MP3 e capas**, confira as imagens ID3 embutidas e as tags dos MP3s já existentes, sem alterá-los. Veja **VISUALIZAR-MP3.md**.
+
+### Conferir metadados e nomes dos próximos MP3s
+
+Depois de preparar cada música em **Downloads**, confira o resumo e use **Editar dados** para corrigir título, artista principal, participações, álbum, gênero, ano, número da faixa e artista do álbum. O artista principal define a pasta e o título define o arquivo: `Artista/Título.mp3` no modelo padrão. Caracteres proibidos no Windows são substituídos; arquivos diferentes de mesmo nome recebem outro número; arquivos idênticos podem ser reaproveitados. Um modelo de organização personalizado continua valendo.
+
+A IA (se ativada) e os catálogos podem falhar ou estar errados; não existe garantia de obter todos os campos. Confira inclusive o artista do álbum, que pode ter sido preenchido com o artista principal quando o catálogo não informou outro. Participações são gravadas junto ao artista (TPE1). A duração final é medida no MP3 após a conversão, não adivinhada pela IA. Em **Ver MP3 e capas**, é possível conferir os dados e a duração do arquivo gerado em modo somente leitura. Nada disso renomeia nem modifica MP3s antigos.

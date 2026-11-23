@@ -21,7 +21,7 @@ from typing import Any, Dict
 
 APP_NOME = "RiffLab"
 APP_SUB = "pesquisa · qualidade · metadados"
-APP_VERSAO = "0.6.3"
+APP_VERSAO = "0.6.4"
 
 # ------------------------------------------------------------------ caminhos
 def _raiz() -> Path:
@@ -81,7 +81,7 @@ PADROES: Dict[str, Any] = {
     "ia_url_base": "https://api.groq.com/openai/v1",
     "ia_timeout": 60,
     "ia_temperatura": 0.0,
-    "ia_min_confianca": 0.35,          # abaixo disso a identificação é descartada
+    "ia_min_confianca": 0.70,          # abaixo disso a identificação é descartada
     # metadados / capas
     "fontes_capa": ["coverartarchive", "itunes", "deezer"],
     "usar_thumb_como_capa": False,     # thumbnail do vídeo NÃO é capa oficial

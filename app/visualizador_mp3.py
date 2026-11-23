@@ -31,6 +31,16 @@ def ler_mp3(caminho: str | Path, incluir_imagens: bool = False) -> dict[str, Any
         frame = tags.get(chave)
         if frame is not None and getattr(frame, 'text', None):
             item[campo] = str(frame.text[0])
+    if incluir_imagens:
+        for campo, chave in (('genero', 'TCON'), ('ano', 'TDRC'),
+                             ('faixa', 'TRCK'), ('artista_album', 'TPE2')):
+            frame = tags.get(chave)
+            item[campo] = str(frame.text[0]) if frame is not None and getattr(frame, 'text', None) else ''
+        try:
+            from mutagen.mp3 import MP3
+            item['duracao_s'] = MP3(str(p)).info.length
+        except Exception:
+            item['duracao_s'] = None
     apics = tags.getall('APIC')
     # Mostrar a capa frontal primeiro, sem ocultar outras imagens APIC.
     apics.sort(key=lambda f: 0 if int(f.type) == 3 else 1)

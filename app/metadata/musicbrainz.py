@@ -183,7 +183,10 @@ def detalhes_release(release_id: str, titulo_faixa: str = "") -> Dict[str, Any]:
         for i, media in enumerate(midias, start=1):
             for t in media.get("tracks") or []:
                 nome_faixa = normalizar(t.get("title") or "")
-                if nome_faixa == alvo or nome_faixa.startswith(alvo) or alvo.startswith(nome_faixa):
+                from .correspondencia import pontuar
+                igual = bool(nome_faixa) and pontuar(
+                    titulo_faixa, 'artista', cand={'titulo': t.get('title') or '', 'artista': 'artista'}).aprovado
+                if igual:
                     numero = str(t.get("number") or "")
                     digitos = "".join(ch for ch in numero if ch.isdigit())
                     faixa = digitos or numero
@@ -201,6 +204,7 @@ def detalhes_release(release_id: str, titulo_faixa: str = "") -> Dict[str, Any]:
         "total_faixas": sum(int(m.get("track-count") or 0) for m in midias) or None,
         "genero": generos[0]["name"] if generos else "",
         "artista": _artista(dados.get("artist-credit") or []),
+        "artista_album": _artista(dados.get("artist-credit") or []),
     }
 
 

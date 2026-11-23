@@ -65,7 +65,12 @@ def melhor_faixa(titulo: str, artista: str = "", album: str = "",
         return None
 
     melhor, melhor_score = None, 0.0
+    from .correspondencia import pontuar
     for item in resultados:
+        candidato = {"titulo": item.get("trackName") or "", "artista": item.get("artistName") or "",
+                     "album": item.get("collectionName") or ""}
+        if not pontuar(titulo, artista, album, cand=candidato).aprovado:
+            continue  # outra versão, artista ou lançamento
         s_titulo = similaridade(titulo, item.get("trackName") or "")
         if s_titulo < 0.85:
             continue                                  # nem é a mesma música
@@ -93,6 +98,7 @@ def melhor_faixa(titulo: str, artista: str = "", album: str = "",
         "titulo": melhor.get("trackName") or titulo,
         "artista": melhor.get("artistName") or artista,
         "album": melhor.get("collectionName") or album,
+        "artista_album": melhor.get("collectionArtistName") or "",
         "ano": int((melhor.get("releaseDate") or "0")[:4] or 0) or None,
         "faixa": melhor.get("trackNumber"),
         "total_faixas": melhor.get("trackCount"),

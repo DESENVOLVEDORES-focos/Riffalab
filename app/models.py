@@ -281,6 +281,7 @@ class CoverResult:
     observacao: str = ""
     # outras capas válidas encontradas (para o usuário escolher, §2.1)
     alternativas: List["CoverResult"] = field(default_factory=list)
+    tipo_lancamento: str = ""  # album, single, colecao ou desconhecido; não garante edição original
 
     @property
     def ok(self) -> bool:

@@ -248,9 +248,8 @@ class DialogoCapas(QDialog):
         fora.addLayout(corpo, 1)
 
         self.lbl_regra = QLabel(
-            "O catálogo indica um single, mas pode haver erro ou arte igual à do álbum. "
-            "Confira se é a capa da música; se não for, escolha “Não usar capa”. "
-            "Imagens locais também exigem sua conferência.")
+            "Álbum e single são indicações do catálogo, não uma garantia de que a edição é a original. Coleção pode ser álbum ou single. "
+            "Confira a música, o artista e a imagem antes de escolher. Imagens locais ou coladas também exigem conferência.")
         self.lbl_regra.setWordWrap(True)
         self.lbl_regra.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
         fora.addWidget(self.lbl_regra)
@@ -266,18 +265,26 @@ class DialogoCapas(QDialog):
         self.btn_sem.clicked.connect(self._sem_capa)
         linha_botoes.addWidget(self.btn_usar)
         linha_botoes.addWidget(self.btn_sem)
+        linha_imagens = QHBoxLayout()
+        linha_imagens.setSpacing(8)
         self.btn_google = QPushButton("Pesquisar imagens no Google")
         self.btn_google.clicked.connect(self._pesquisar_google)
-        linha_botoes.addWidget(self.btn_google)
+        linha_imagens.addWidget(self.btn_google)
+        self.btn_colar = QPushButton("Colar imagem copiada")
+        self.btn_colar.setToolTip("Copie uma imagem no navegador e clique aqui para revisá-la.")
+        self.btn_colar.clicked.connect(self._colar_imagem)
+        linha_imagens.addWidget(self.btn_colar)
         self.btn_arquivo = QPushButton("Escolher imagem salva")
         self.btn_arquivo.clicked.connect(self._escolher_arquivo)
-        linha_botoes.addWidget(self.btn_arquivo)
+        linha_imagens.addWidget(self.btn_arquivo)
+        linha_imagens.addStretch(1)
         linha_botoes.addStretch(1)
         self.btn_abrir = QPushButton("Ver imagem maior")
         self.btn_abrir.setObjectName("fantasma")
         self.btn_abrir.clicked.connect(self._ver_maior)
         linha_botoes.addWidget(self.btn_abrir)
         fora.addLayout(linha_botoes)
+        fora.addLayout(linha_imagens)
 
         self._preencher_lista()
         if self.opcoes:
@@ -291,8 +298,9 @@ class DialogoCapas(QDialog):
     def _preencher_lista(self) -> None:
         self.lista.clear()
         for indice, opcao in enumerate(self.opcoes):
-            texto = opcao.album or ("imagem local — álbum não verificado" if opcao.fonte == "arquivo local" else "capa sem álbum informado")
-            extra = f"{opcao.fonte.replace('_', ' ')}  ·  {opcao.dimensoes()}"
+            texto = opcao.album or ("imagem escolhida — álbum não verificado" if opcao.fonte in ('arquivo local', 'imagem colada') else "capa sem álbum informado")
+            tipo = {'album': 'Álbum', 'single': 'Single', 'colecao': 'Coleção (tipo não confirmado)'}.get(opcao.tipo_lancamento, 'Imagem escolhida' if opcao.fonte in ('arquivo local', 'imagem colada') else 'Tipo não informado')
+            extra = f"{tipo}  ·  {opcao.fonte.replace('_', ' ')}  ·  {opcao.dimensoes()}"
             if opcao.score:
                 extra += f"  ·  correspondência {opcao.score:.2f}"
             item = QListWidgetItem(f"{texto}\n{extra}")
@@ -316,7 +324,7 @@ class DialogoCapas(QDialog):
             self.lbl_imagem.setText("imagem indisponível")
 
         self.lbl_album.setText(opcao.album or ("Imagem local — álbum não verificado"
-                                                if opcao.fonte == "arquivo local" else "álbum não informado"))
+                                                if opcao.fonte in ("arquivo local", "imagem colada") else "álbum não informado"))
         artista = opcao.artista or "artista não informado"
         ano = f"  ·  {opcao.ano}" if opcao.ano else ""
         self.lbl_credito.setText(f"{artista}{ano}  ·  {opcao.dimensoes()}")
@@ -326,6 +334,9 @@ class DialogoCapas(QDialog):
             if w is not None:
                 w.setParent(None)
                 w.deleteLater()
+        tipo = {'album': 'Álbum', 'single': 'Single', 'colecao': 'Coleção (tipo não confirmado)'}.get(opcao.tipo_lancamento)
+        if tipo:
+            self.chips.addWidget(Chip(tipo, PALETA["violeta"]))
         self.chips.addWidget(Chip(opcao.fonte.replace("_", " "), PALETA["ciano"]))
         if opcao.score:
             cor = (PALETA["lima"] if opcao.score >= 0.85 else
@@ -336,7 +347,7 @@ class DialogoCapas(QDialog):
         self.chips.addStretch(1)
 
         observacao = opcao.observacao or ""
-        if observacao and (opcao.fonte == "arquivo local" or "Álbum diferente" in observacao or (opcao.score and opcao.score < 0.85)):
+        if observacao and (opcao.fonte in ("arquivo local", "imagem colada") or "Álbum diferente" in observacao or (opcao.score and opcao.score < 0.85)):
             self.lbl_motivo.setText(f"Confira antes de usar: {observacao}")
         else:
             self.lbl_motivo.setText("")
@@ -356,9 +367,44 @@ class DialogoCapas(QDialog):
         from urllib.parse import urlencode
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
-        termo = " ".join(str(self.musica.get(k) or "") for k in ("artista", "titulo"))
-        url = "https://www.google.com/search?" + urlencode({"q": termo.strip() + " capa single", "tbm": "isch"})
+        termo = " ".join(str(self.musica.get(k) or "") for k in ("artista", "titulo", "album"))
+        url = "https://www.google.com/search?" + urlencode({"q": termo.strip() + " capa album single", "tbm": "isch"})
         QDesktopServices.openUrl(QUrl(url))
+
+    def _colar_imagem(self) -> None:
+        """Adiciona somente a imagem que a pessoa copiou e precisa confirmar."""
+        from PySide6.QtCore import QBuffer, QIODevice
+        from PySide6.QtWidgets import QApplication
+        from ..metadata.capa_validacao import validar
+        from ..metadata.covers import salvar_cache
+        imagem = QApplication.clipboard().image()
+        try:
+            if imagem.isNull():
+                raise ValueError('Copie a imagem no navegador, não apenas o endereço, e tente novamente.')
+            if min(imagem.width(), imagem.height()) < 300:
+                raise ValueError('Imagem menor que 300 pixels; copie a imagem maior, não a miniatura.')
+            if max(imagem.width(), imagem.height()) > 6000:
+                raise ValueError('Imagem maior que 6000 pixels por lado.')
+            buffer = QBuffer()
+            if not buffer.open(QIODevice.WriteOnly) or not imagem.save(buffer, 'PNG'):
+                raise ValueError('Não foi possível ler a imagem copiada.')
+            dados = bytes(buffer.data())
+            buffer.close()
+            if len(dados) > 15 * 1024 * 1024:
+                raise ValueError('Imagem maior que 15 MB.')
+            validacao = validar(dados, minimo_lado=300)
+            if not validacao.ok:
+                raise ValueError(validacao.motivo)
+            destino = salvar_cache('imagem-colada:' + validacao.hash, dados)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, 'Imagem inválida', str(exc))
+            return
+        opcao = CoverResult(caminho=str(destino), fonte='imagem colada',
+                            largura=validacao.largura, altura=validacao.altura,
+                            observacao='Imagem escolhida por você; confira a música, a edição e os direitos de uso.')
+        self.opcoes.append(opcao)
+        self._preencher_lista()
+        self.lista.setCurrentRow(len(self.opcoes) - 1)
 
     def _escolher_arquivo(self) -> None:
         from pathlib import Path

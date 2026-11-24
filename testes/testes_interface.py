@@ -244,7 +244,7 @@ class Interface(unittest.TestCase):
                 self.app.processEvents(); time.sleep(.01)
             self.assertEqual(card.resultado.formatos[0].format_id, '140')
 
-    def test_fontes_ativas_de_capa_sao_visiveis_e_busca_manual_pede_single(self):
+    def test_fontes_ativas_de_capa_sao_visiveis_e_busca_manual_inclui_album_e_single(self):
         from app.models import CoverResult
         from app.ui.dialogos import DialogoCapas
         from PySide6.QtGui import QDesktopServices
@@ -258,7 +258,8 @@ class Interface(unittest.TestCase):
             dialogo._pesquisar_google()
         url = abrir.call_args.args[0].toString().lower()
         self.assertIn('single', url)
-        self.assertNotIn('appetite', url)
+        self.assertIn('appetite', url)
+        self.assertIn('album', url)
         dialogo.deleteLater()
 
     def test_fila_descarta_callbacks_de_card_antigo_e_continua_pesquisa_nova(self):

@@ -68,7 +68,7 @@ def _artista(creditos: List[Dict[str, Any]]) -> str:
 
 def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
                     limite: int = 4, somente_single: bool = False,
-                    todos_singles: bool = False) -> List[Dict[str, Any]]:
+                    todos_singles: bool = False, todos_albuns: bool = False) -> List[Dict[str, Any]]:
     """Pesquisa gravações e escolhe, para cada uma, o release mais provável.
 
     Se `album` for informado, releases com nome parecido têm prioridade
@@ -104,9 +104,12 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
             continue
         melhor_rel, melhor_nota = None, -1.0
         singles = []
+        albuns = []
         for rel in releases:
             tipo = str((rel.get("release-group") or {}).get("primary-type") or "")
             if somente_single and tipo.lower() != "single":
+                continue
+            if todos_albuns and tipo.lower() != "album":
                 continue
             nota = 0.0
             if alvo_album:
@@ -123,6 +126,8 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
                 nota += 0.5
             if somente_single and todos_singles and rel.get("id"):
                 singles.append((rel, nota))
+            if todos_albuns and rel.get("id"):
+                albuns.append((rel, nota))
             if nota > melhor_nota:
                 melhor_rel, melhor_nota = rel, nota
         if not melhor_rel:
@@ -141,7 +146,7 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
                 continue
         confianca = min(1.0, (sim_titulo * 0.55) + (sim_artista * 0.35)
                         + (min(int(rec.get("score") or 0), 100) / 100.0) * 0.10)
-        for melhor_rel, melhor_nota in (singles if somente_single and todos_singles else [(melhor_rel, melhor_nota)]):
+        for melhor_rel, melhor_nota in (albuns if todos_albuns else singles if somente_single and todos_singles else [(melhor_rel, melhor_nota)]):
             saida.append({
                 "titulo": nome_rec or titulo,
                 "artista": artista_rec or artista,

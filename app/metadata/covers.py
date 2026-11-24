@@ -1,8 +1,8 @@
-"""Busca de candidatos de capa de single e cache local.
+"""Busca de candidatos de capa e cache local.
 
-Apenas lançamentos identificados pelo catálogo como single são candidatos.
-Não há substituição automática por álbum ou miniatura. Classificações podem
-estar erradas, por isso as imagens devem ser conferidas pelo usuário.
+Sem revisão, apenas singles são candidatos. Na tela de revisão, também
+aparecem álbuns e coleções. Classificações podem estar erradas, por isso
+as imagens devem ser conferidas pelo usuário.
 """
 from __future__ import annotations
 
@@ -79,6 +79,7 @@ def candidatos_capa(
     usar_miniatura: bool = False,
     identificacao=None,
     exigir_quadrada: bool = False,
+    incluir_albuns_para_revisao: bool = False,
 ) -> Tuple[CoverResult, List[CoverResult]]:
     """(melhor capa, alternativas) — todas já baixadas e validadas.
 
@@ -92,24 +93,32 @@ def candidatos_capa(
         titulo, artista, album, ano, fontes=_padrao_fontes(fontes),
         minimo_lado=minimo_lado, thumb_extra=thumb_extra,
         usar_miniatura=usar_miniatura, identificacao=identificacao,
-        exigir_quadrada=exigir_quadrada)
+        exigir_quadrada=exigir_quadrada, incluir_albuns_para_revisao=incluir_albuns_para_revisao)
 
     if not aprovadas:
         if not titulo or not artista:
-            motivo = ("É preciso informar título e artista para procurar capa de single. "
+            motivo = ("É preciso informar título e artista para procurar capa. "
                       "Em Downloads, use Editar dados e tente novamente.")
         elif not _padrao_fontes(fontes):
             motivo = ("Nenhuma fonte de capa está ativada. Ative fontes em Configurações "
                       "ou escolha uma imagem salva.")
         else:
-            motivo = ("Nenhuma capa de single identificada com confiança. Os serviços podem "
-                      "não responder ou não ter um single reconhecido. Não usamos capa de álbum "
-                      "como substituta; escolha uma imagem salva ou siga sem capa.")
-            sem_single = sum(a.motivo == 'não foi possível confirmar que a capa é de um single'
-                             for a in reprovadas)
-            outras = len(reprovadas) - sem_single
+            if incluir_albuns_para_revisao:
+                motivo = ("Nenhuma capa de álbum ou single identificada com confiança. "
+                          "Os serviços podem não responder ou não ter resultados compatíveis. "
+                          "Você pode escolher uma imagem salva ou colada, ou seguir sem capa.")
+                tipo_indefinido = 'não foi possível confirmar que é álbum ou single'
+                nome_tipo = 'sem tipo de álbum ou single confirmado'
+            else:
+                motivo = ("Nenhuma capa de single identificada com confiança. Os serviços podem "
+                          "não responder ou não ter um single reconhecido. Não usamos capa de álbum "
+                          "como substituta; escolha uma imagem salva ou siga sem capa.")
+                tipo_indefinido = 'não foi possível confirmar que a capa é de um single'
+                nome_tipo = 'sem confirmação de single'
+            sem_tipo = sum(a.motivo == tipo_indefinido for a in reprovadas)
+            outras = len(reprovadas) - sem_tipo
             if reprovadas:
-                motivo += (f" Candidatos descartados: {sem_single} sem confirmação de single"
+                motivo += (f" Candidatos descartados: {sem_tipo} {nome_tipo}"
                            f" e {outras} por imagem ou correspondência.")
             else:
                 motivo += " Nenhum candidato chegou à avaliação; veja erros das fontes na janela de iniciar."
@@ -131,18 +140,20 @@ def encontrar_capa(
     sobrescrever_cache: bool = False,
     identificacao=None,
     usar_miniatura: bool = False,
+    incluir_albuns_para_revisao: bool = False,
 ) -> CoverResult:
     """Devolve a melhor capa encontrada (com caminho local) ou CoverResult vazio.
 
     `identificacao` pode complementar artista e outros dados. O álbum e a
-    miniatura não são usados como capa substituta, mesmo se solicitados.
+    miniatura não são usados como capa substituta automática; álbuns só
+    são incluídos quando solicitados para revisão explícita.
     """
     if sobrescrever_cache:
         _limpar_cache_urls()
     melhor, alternativas = candidatos_capa(
         titulo, artista, album, ano=ano, fontes=fontes, minimo_lado=minimo_lado,
         thumb_extra=thumb_extra, usar_miniatura=usar_miniatura,
-        identificacao=identificacao)
+        identificacao=identificacao, incluir_albuns_para_revisao=incluir_albuns_para_revisao)
     melhor.alternativas = alternativas
     return melhor
 

@@ -114,7 +114,7 @@ def melhor_faixa(titulo: str, artista: str = "", album: str = "",
 
 
 def faixas_capa(titulo: str, artista: str = "", album: str = "",
-                 ano: Optional[int] = None) -> List[Dict[str, Any]]:
+                 ano: Optional[int] = None, incluir_albuns: bool = False) -> List[Dict[str, Any]]:
     """Candidatos reais do catálogo; a validação final é compartilhada."""
     consulta = " ".join(x for x in (artista, titulo, album) if x)
     if not titulo or not (artista or album):
@@ -143,11 +143,19 @@ def faixas_capa(titulo: str, artista: str = "", album: str = "",
                         r"(?:\s*-\s*single|\s*\(single\))\s*$",
                         candidato['album'], re.I) else ""),
                     "capa_url": url}
-            indice = indice_por_url.get(url)
+            if incluir_albuns and not novo['tipo_lancamento']:
+                # collectionType=Album inclui singles; não confirma o tipo. Nomes de EP não
+                # são classificados como álbum. A edição original não é provada.
+                tipo = str(item.get('collectionType') or '').lower()
+                nome = candidato['album']
+                if tipo == 'album' and not re.search(r'(?:\s*-\s*ep|\s*\(ep\))\s*$', nome, re.I):
+                    novo['tipo_lancamento'] = 'colecao'
+            chave = (url, novo['tipo_lancamento'], novo['album']) if incluir_albuns else url
+            indice = indice_por_url.get(chave)
             if indice is None:
-                indice_por_url[url] = len(saida)
+                indice_por_url[chave] = len(saida)
                 saida.append(novo)
-            elif novo['tipo_lancamento'] == 'single' and saida[indice]['tipo_lancamento'] != 'single':
+            elif not incluir_albuns and novo['tipo_lancamento'] == 'single' and saida[indice]['tipo_lancamento'] != 'single':
                 saida[indice] = novo
     return saida
 

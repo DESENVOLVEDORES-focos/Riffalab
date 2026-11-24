@@ -135,11 +135,50 @@ def caa_busca(titulo: str, artista: str = "", album: str = "",
     return saida
 
 
+def caa_albuns(titulo: str, artista: str = "", album: str = "",
+               ano: Optional[int] = None) -> List[Capa]:
+    """Capas de álbuns que o catálogo vincula à gravação; para revisão humana."""
+    if not titulo or not artista:
+        return []
+    try:
+        gravacoes = musicbrainz.buscar_gravacao(titulo, artista, "", limite=25, todos_albuns=True)
+    except Exception:
+        return []
+    saida = []
+    from .busca_capas import _identidade_estrita
+    elegiveis = [g for g in gravacoes if str(g.get('tipo_lancamento') or '').lower() == 'album'
+                 and float(g.get('confianca') or 0) >= 0.70
+                 and _identidade_estrita(titulo, artista, Capa(titulo=g.get('titulo') or '', artista=g.get('artista') or ''))]
+    # A lista pode conter covers e coletâneas antes da faixa procurada;
+    # priorizar identidade literal e o álbum indicado antes do limite de rede.
+    elegiveis.sort(key=lambda g: (
+        normalizar(g.get('titulo') or '') == normalizar(titulo),
+        normalizar(g.get('artista') or '') == normalizar(artista),
+        bool(album and normalizar(g.get('album') or '') == normalizar(album)),
+        float(g.get('confianca') or 0)), reverse=True)
+    for achado in elegiveis[:6]:
+        for imagem in coverartarchive.imagens(release_id=achado.get('release_id') or '',
+                                              release_group=achado.get('release_group') or '')[:3]:
+            if not imagem.get('url'):
+                continue
+            saida.append(Capa(url=imagem['url'], fonte='coverartarchive',
+                              prioridade=PRIORIDADE['coverartarchive'],
+                              album=achado.get('album') or '', artista=achado.get('artista') or '',
+                              titulo=achado.get('titulo') or '', ano=achado.get('ano'),
+                              mbid=achado.get('release_group') or '',
+                              score_provedor=float(achado.get('confianca') or 0),
+                              observacao='Álbum indicado pelo MusicBrainz; confira a edição.',
+                              extra={'tipo_lancamento': 'album', 'release_id': achado.get('release_id') or ''}))
+    return saida
+
+
 # ------------------------------------------------------------------ 3: Apple
 def apple_music(titulo: str, artista: str = "", album: str = "",
-                ano: Optional[int] = None) -> List[Capa]:
+                ano: Optional[int] = None, incluir_albuns: bool = False) -> List[Capa]:
     saida = []
-    for faixa in itunes.faixas_capa(titulo, artista, album, ano):
+    faixas = (itunes.faixas_capa(titulo, artista, album, ano, incluir_albuns=True)
+              if incluir_albuns else itunes.faixas_capa(titulo, artista, album, ano))
+    for faixa in faixas:
         saida.append(Capa(url=faixa["capa_url"], fonte="itunes",
                           prioridade=PRIORIDADE["itunes"], album=faixa["album"],
                           artista=faixa["artista"], titulo=faixa["titulo"],

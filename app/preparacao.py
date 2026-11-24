@@ -127,6 +127,6 @@ def preparar_musica(resultado: TrackResult, config: Config, progresso=None,
             meta_consulta = replace(meta_consulta, album='', ano=None)
         capa = pipeline.buscar_capa(meta_consulta, config,
             resultado.thumb_url or resultado.extra.get('thumb', ''), progresso, ident=ident_capa,
-            interpretar_canal=False)
+            interpretar_canal=False, incluir_albuns_para_revisao=True)
     return {'meta': meta, 'ident': ident, 'capa': capa, 'apagar_tags': apagar_tags,
             'consulta_capa': consulta_capa}

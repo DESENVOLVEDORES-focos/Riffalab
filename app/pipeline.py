@@ -141,7 +141,8 @@ def montar_metadados(resultado: TrackResult, config: Config,
 
 
 def buscar_capa(meta: TrackMeta, config: Config, thumb_extra: str = "",
-                progresso: Progresso = None, ident=None, interpretar_canal: bool = True):
+                progresso: Progresso = None, ident=None, interpretar_canal: bool = True,
+                incluir_albuns_para_revisao: bool = False):
     _emitir(progresso, 60, "procurando a capa…")
     # canal não é artista: "Disney", "FulanoVEVO", "Canal Official" etc. fazem a
     # busca pegar a capa de OUTRA música com o mesmo nome. Nesses casos tenta o
@@ -164,6 +165,7 @@ def buscar_capa(meta: TrackMeta, config: Config, thumb_extra: str = "",
             thumb_extra=thumb_extra,
             identificacao=ident,
             usar_miniatura=bool(config.get("usar_thumb_como_capa", False)),
+            incluir_albuns_para_revisao=incluir_albuns_para_revisao,
         )
     except Exception as exc:                                     # noqa: BLE001
         from .models import CoverResult

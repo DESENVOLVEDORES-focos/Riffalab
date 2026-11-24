@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import QCoreApplication, QTranslator, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFileDialog, QFrame, QGridLayout,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
@@ -36,6 +36,32 @@ MODOS_MP3 = [
     ("alta", "Alta — MP3 CBR 320 kbps"),
     ("personalizada", "Personalizada — escolher o bitrate"),
 ]
+
+
+class _TradutorPaleta(QTranslator):
+    """Português para a paleta Qt, independente do idioma do Windows."""
+    _textos = {
+        ('QColorDialog', 'Select Color'): 'Escolher cor',
+        ('QColorDialog', '&Basic colors'): 'Cores &básicas',
+        ('QColorDialog', '&Custom colors'): '&Cores personalizadas',
+        ('QColorDialog', '&Add to Custom Colors'): '&Adicionar às cores personalizadas',
+        ('QColorDialog', '&Pick Screen Color'): '&Selecionar cor na tela',
+        ('QColorDialog', 'Hu&e:'): '&Tom:',
+        ('QColorDialog', '&Sat:'): '&Saturação:',
+        ('QColorDialog', '&Val:'): '&Valor:',
+        ('QColorDialog', '&Red:'): 'Ve&rmelho:',
+        ('QColorDialog', '&Green:'): '&Verde:',
+        ('QColorDialog', 'Bl&ue:'): 'Az&ul:',
+        ('QColorDialog', 'A&lpha channel:'): 'Canal a&lfa:',
+        ('QColorDialog', '&HTML:'): 'Código &HTML:',
+        ('QPlatformTheme', 'OK'): 'Confirmar',
+        ('QPlatformTheme', 'Cancel'): 'Cancelar',
+        ('QDialogButtonBox', 'OK'): 'Confirmar',
+        ('QDialogButtonBox', 'Cancel'): 'Cancelar',
+    }
+
+    def translate(self, context, sourceText, disambiguation=None, n=-1):
+        return self._textos.get((context, sourceText))
 
 
 class Cartao(QFrame):
@@ -213,7 +239,18 @@ class SettingsPage(QWidget):
                    'cor_cartoes': PALETA_ORIGINAL['surface'], 'cor_botoes': PALETA_ORIGINAL['violeta'],
                    'cor_texto': PALETA_ORIGINAL['texto']}
         atual = self.cores_em_edicao.get(chave) or padroes[chave]
-        cor = QColorDialog.getColor(QColor(atual), self, f"Escolher cor: {self._nomes_cores[chave]}")
+        # O seletor nativo segue o idioma do sistema. Usamos a paleta do Qt,
+        # traduzida apenas durante sua abertura; o tema do app não é alterado.
+        tradutor = _TradutorPaleta()
+        app = QCoreApplication.instance()
+        if app:
+            app.installTranslator(tradutor)
+        try:
+            cor = QColorDialog.getColor(QColor(atual), self,
+                f"Escolher cor: {self._nomes_cores[chave]}", QColorDialog.DontUseNativeDialog)
+        finally:
+            if app:
+                app.removeTranslator(tradutor)
         if not cor.isValid():
             return
         self.cores_em_edicao[chave] = validar_cor(cor.name())

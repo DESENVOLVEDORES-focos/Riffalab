@@ -19,6 +19,12 @@ Para o álbum, o programa procura uma gravação compatível no MusicBrainz, pri
 
 Se não houver informações suficientes, alguns campos ficarão vazios. **Antes de baixar, use Editar dados para conferir e corrigir os oito campos.** A IA e os catálogos podem errar ou estar indisponíveis; não há garantia de acerto ou de todos os campos preenchidos. Músicas já baixadas não são alteradas. A duração final é medida depois da conversão.
 
+## Pedir nova sugestão à IA
+
+Em **Downloads**, abra **Editar dados** e clique em **Pedir nova sugestão à IA**. Se quiser, escreva no campo acima o que parece errado, por exemplo “o álbum está errado”. O RiffLab envia à Groq os dados da origem, os campos mostrados no editor e sua observação; não envie informações sensíveis nesse campo. Para funcionar, é preciso ter a IA ativada e a chave configurada em Configurações.
+
+A consulta ocorre em segundo plano. A IA pode repetir a resposta, falhar ou errar; os valores sugeridos não são prova, inclusive o álbum. Confira tudo e clique em **Salvar** para aceitar no editor, ou **Cancelar** para descartar. Campos alterados enquanto aguarda não são substituídos; se mudar o título ou artista durante a consulta, peça novamente. Caso o álbum ou a música mude, dados antigos de edição sem nova sugestão são limpos para evitar misturas. Se título, artista ou álbum mudar, será necessário revisar a capa novamente antes de baixar. O botão não modifica MP3s já existentes.
+
 ## Atualização segura
 
 Encerre os downloads e o aplicativo, faça backup de `config.json` e `rifflab.db` e mescle a pasta do ZIP completo com a instalação existente. Não apague configurações, banco, cookies, músicas, ferramentas, ambiente ou `Download de Capas`. O ZIP não contém esses dados locais. Arquivos de instruções das versões anteriores são históricos e podem descrever o fluxo antigo.

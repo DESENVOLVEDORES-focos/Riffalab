@@ -1,3 +1,5 @@
+> **Versão 0.11.0:** em Editar dados, peça uma nova sugestão à IA e confira antes de salvar. A paleta de cores também está em português. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
+
 # RiffLab
 
 > **Versão 0.10.1:** a janela de capa abre enquanto os metadados são identificados em segundo plano; pesquise no Google somente quando desejar e confira os dados antes de confirmar. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).

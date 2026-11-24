@@ -94,6 +94,26 @@ class PersonalizacaoCores(unittest.TestCase):
         self.assertEqual(paleta_personalizada(cores_do_config(self.cfg))['bg0'], PALETA['bg0'])
         self.assertNotIn('background:red', qss(cores=cores_do_config(self.cfg)))
 
+    def test_seletor_de_cores_esta_em_portugues_sem_mudar_paleta(self):
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QLabel, QPushButton
+        textos = []
+        antes = self.app.styleSheet()
+        def inspecionar():
+            dlg = self.app.activeModalWidget()
+            if dlg:
+                textos.extend(w.text().replace('&','') for w in dlg.findChildren(QLabel))
+                textos.extend(w.text().replace('&','') for w in dlg.findChildren(QPushButton))
+                dlg.reject()
+        QTimer.singleShot(30, inspecionar)
+        self.pagina.botoes_cores['cor_fundo'].click()
+        for esperado in ('Cores básicas','Cores personalizadas','Tom:', 'Saturação:',
+                         'Valor:', 'Vermelho:', 'Verde:', 'Azul:', 'Confirmar','Cancelar'):
+            self.assertIn(esperado, textos)
+        self.assertNotIn('Basic colors', textos)
+        self.assertEqual(self.app.styleSheet(), antes)
+        self.assertEqual(self.pagina.cores_em_edicao['cor_fundo'], '')
+
     def test_preview_nao_remove_selecao_ou_altera_arquivo_de_musica(self):
         from app.models import TrackResult
         mp3 = self.base/'musica existente.mp3'; mp3.write_bytes(b'nao alterar')

@@ -1,7 +1,7 @@
 # Personalização de cores — RiffLab 0.9.0
 
 1. Abra **Configurações** e encontre **Personalização de cores**.
-2. Clique em **Fundo**, **Menu lateral**, **Cartões**, **Botões** ou **Texto**. Selecione qualquer cor na paleta e confirme. A mudança aparece como prévia imediatamente; cancelar a paleta não altera nada.
+2. Clique em **Fundo**, **Menu lateral**, **Cartões**, **Botões** ou **Texto**. A paleta aparece em português; selecione qualquer cor e confirme. A mudança aparece como prévia imediatamente; cancelar a paleta não altera nada.
 3. Quando gostar do resultado, clique em **Salvar configurações** no alto da página. As cores são guardadas em `config.json` e reaplicadas na próxima abertura. Sem salvar, a prévia vale apenas para a sessão atual.
 4. Para voltar ao visual original, clique em **Restaurar cores originais** e depois em **Salvar configurações**. Isso não restaura as outras configurações e não apaga músicas nem capas.
 

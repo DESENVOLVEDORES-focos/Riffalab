@@ -6,7 +6,7 @@ from typing import Dict, Optional
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QMainWindow,
-                               QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget, QApplication)
 
 from .. import cookies as cookies_mod
 from ..config import APP_NOME, APP_SUB, APP_VERSAO, Config
@@ -18,7 +18,7 @@ from .pages.downloads_page import DownloadsPage
 from .pages.mp3_viewer_page import MP3ViewerPage
 from .pages.search_page import SearchPage
 from .pages.settings_page import SettingsPage
-from .theme import PALETA
+from .theme import PALETA, aplicar_tema, cores_do_config, validar_cor, contraste
 from .widgets.images import CarregadorImagens
 from .widgets.toast import Toast
 
@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
         logo = QLabel(APP_NOME.upper())
         logo.setObjectName("logo")
         logo.setStyleSheet(
-            f"color: #fff; font-size: 26px; font-weight: 800; letter-spacing: 2px;"
+            "font-size: 26px; font-weight: 800; letter-spacing: 2px;"
         )
         sub = QLabel(APP_SUB.upper())
         sub.setObjectName("logoSub")
@@ -84,6 +84,7 @@ class MainWindow(QMainWindow):
 
         col.addStretch(1)
         versao = QLabel(f"Versão {APP_VERSAO}")
+        self.lbl_versao = versao
         versao.setStyleSheet(f"color: {PALETA['texto']}; font-size: 13px; padding: 4px 20px;")
         col.addWidget(versao)
 
@@ -132,6 +133,7 @@ class MainWindow(QMainWindow):
         self.pagina_downloads.mensagem.connect(self.toast.mostrar)
         self.pagina_config.mensagem.connect(self.toast.mostrar)
         self.pagina_config.config_alterada.connect(self._config_mudou)
+        self.pagina_config.cores_alteradas.connect(self._aplicar_cores)
         self.fila.mensagem.connect(self._ao_processar)
         self.fila.job_adicionado.connect(lambda _j: self._sincronizar_contador())
         self.fila.job_atualizado.connect(lambda _j: self._sincronizar_contador())
@@ -140,6 +142,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Pronto.")
         self.ir_para("buscar")
         self._atualizar_rodape()
+        self._cores_rodape(cores_do_config(self.config))
         QTimer.singleShot(200, self._atualizar_rodape_completo)
         QTimer.singleShot(350, self._avisar_pasta_saida_inicial)
 
@@ -192,7 +195,21 @@ class MainWindow(QMainWindow):
         self.toast.mostrar(msg)
         self.statusBar().showMessage(msg)
 
+    def _cores_rodape(self, cores) -> None:
+        lateral = validar_cor(cores.get('cor_lateral')) if isinstance(cores, dict) else ''
+        texto = contraste(lateral) if lateral else PALETA['texto']
+        fraco = contraste(lateral) if lateral else PALETA['texto_fraco']
+        self.lbl_versao.setStyleSheet(f"color: {texto}; font-size: 13px; padding: 4px 20px;")
+        self.lbl_rodape.setStyleSheet(f"color: {fraco}; font-size: 10.5px; padding: 0 20px 14px;")
+
+    def _aplicar_cores(self, cores) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            aplicar_tema(app, str(self.config.get('cor_destaque') or 'violeta'), cores)
+            self._cores_rodape(cores)
+
     def _config_mudou(self) -> None:
+        self._aplicar_cores(cores_do_config(self.config))
         self._atualizar_rodape()
         self.pagina_busca._atualizar_aviso()
         self.pagina_varias._atualizar_aviso()

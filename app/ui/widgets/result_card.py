@@ -78,7 +78,8 @@ class ResultCard(QFrame):
 
         sub = QLabel(self._linha_secundaria())
         sub.setObjectName("dim")
-        sub.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 12px;")
+        sub.setProperty("papel_tema", "dim")
+        sub.setStyleSheet("font-size: 12px;")
         sub.setWordWrap(True)
         sub.setMinimumWidth(120)
         meio.addWidget(sub)
@@ -98,7 +99,8 @@ class ResultCard(QFrame):
 
         self.lbl_metodos_qualidade = QLabel("")
         self.lbl_metodos_qualidade.setWordWrap(False)
-        self.lbl_metodos_qualidade.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 11px;")
+        self.lbl_metodos_qualidade.setProperty("papel_tema", "dim")
+        self.lbl_metodos_qualidade.setStyleSheet("font-size: 11px;")
         self.lbl_metodos_qualidade.linkActivated.connect(self._mostrar_metodos)
         self._detalhes_metodos = ""
         self.lbl_metodos_qualidade.setVisible(False)
@@ -106,7 +108,8 @@ class ResultCard(QFrame):
 
         self.lbl_origem_formato = QLabel("")
         self.lbl_origem_formato.setWordWrap(False)
-        self.lbl_origem_formato.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 11px;")
+        self.lbl_origem_formato.setProperty("papel_tema", "dim")
+        self.lbl_origem_formato.setStyleSheet("font-size: 11px;")
         self.lbl_origem_formato.setVisible(False)
         meio.addWidget(self.lbl_origem_formato)
 
@@ -117,7 +120,8 @@ class ResultCard(QFrame):
         meio.addWidget(self.lbl_baixado)
 
         self.lbl_video = QLabel("")
-        self.lbl_video.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        self.lbl_video.setProperty("papel_tema", "fraco")
+        self.lbl_video.setStyleSheet("font-size: 11px;")
         self.lbl_video.setWordWrap(True)
         self.lbl_video.setMinimumWidth(120)
         self.lbl_video.setVisible(False)
@@ -368,7 +372,8 @@ class ResultCard(QFrame):
             self.combo.addItem(texto, self._formato_padrao())
             self.combo.setEnabled(False)
             self.combo.setToolTip(dica)
-            self.combo.setStyleSheet(f"color: {PALETA['texto_fraco']};")
+            self.combo.setProperty("papel_tema", "fraco")
+            self.combo.setStyleSheet("")
             # o botão NUNCA fica travado esperando a detecção
             self.btn_processar.setEnabled(True)
             self.btn_processar.setToolTip(dica)

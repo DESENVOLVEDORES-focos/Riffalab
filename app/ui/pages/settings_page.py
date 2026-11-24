@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout,
+from PySide6.QtGui import QColor, QDesktopServices
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFileDialog, QFrame, QGridLayout,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
                                QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
@@ -19,7 +19,7 @@ from ...sources import todas_as_fontes
 from ...ia import cliente_groq
 from ...tools import status_ferramentas
 from ...workers import EXECUTOR_GLOBAL
-from ..theme import PALETA, alfa
+from ..theme import PALETA, PALETA_ORIGINAL, alfa, CHAVES_CORES, cores_do_config, validar_cor, contraste
 from ..widgets.result_card import Chip
 
 MODELOS_ORGANIZACAO = [
@@ -67,12 +67,14 @@ class Cartao(QFrame):
 
 class SettingsPage(QWidget):
     config_alterada = Signal()
+    cores_alteradas = Signal(object)
     ferramentas_verificadas = Signal(object)
     mensagem = Signal(str)
 
     def __init__(self, config: Config, pai: Optional[QWidget] = None) -> None:
         super().__init__(pai)
         self.config = config
+        self.cores_em_edicao = cores_do_config(config)
         self.status_cookies = cookies_mod.verificar(self.config.caminho_cookies)
         self.status_ferr: Dict[str, object] = {}
         self._verificando_ferramentas = False
@@ -115,6 +117,7 @@ class SettingsPage(QWidget):
         # ocultos para preservar preferências existentes ao salvar.
         self._cartao_saida()
         self._cartao_verificar_baixados()
+        self._cartao_personalizacao()
         self._cartao_cookies()
         self._cartao_ia()
         self._cartao_ferramentas()
@@ -163,6 +166,65 @@ class SettingsPage(QWidget):
         if pasta:
             self.campo_pasta_baixados.setText(pasta)
 
+    def _cartao_personalizacao(self) -> None:
+        cartao = Cartao("Personalização de cores")
+        self.col.addWidget(cartao)
+        dica = QLabel("Clique em cada cor para abrir a paleta. A prévia é imediata; "
+                      "clique em Salvar configurações para manter as cores ao reiniciar. "
+                      "Escolha texto que contraste com o fundo e os cartões.")
+        dica.setWordWrap(True)
+        cartao.layout_.addWidget(dica)
+        grade = QGridLayout()
+        grade.setSpacing(8)
+        nomes = [('cor_fundo', 'Fundo'), ('cor_lateral', 'Menu lateral'),
+                 ('cor_cartoes', 'Cartões'), ('cor_botoes', 'Botões'),
+                 ('cor_texto', 'Texto')]
+        self.botoes_cores = {}
+        self._nomes_cores = dict(nomes)
+        for indice, (chave, nome) in enumerate(nomes):
+            botao = QPushButton()
+            botao.setToolTip(f"Escolher cor: {nome}")
+            botao.clicked.connect(lambda _=False, k=chave: self._escolher_cor(k))
+            self.botoes_cores[chave] = botao
+            grade.addWidget(botao, indice // 2, indice % 2)
+        cartao.layout_.addLayout(grade)
+        self.btn_cores_padrao = QPushButton("Restaurar cores originais")
+        self.btn_cores_padrao.setToolTip("Não altera downloads, músicas ou outras configurações.")
+        self.btn_cores_padrao.clicked.connect(self._restaurar_cores)
+        cartao.layout_.addWidget(self.btn_cores_padrao)
+        self._atualizar_amostras_cores()
+
+    def _atualizar_amostras_cores(self) -> None:
+        padroes = {'cor_fundo': PALETA_ORIGINAL['bg0'], 'cor_lateral': '#1C0629',
+                   'cor_cartoes': PALETA_ORIGINAL['surface'], 'cor_botoes': PALETA_ORIGINAL['violeta'],
+                   'cor_texto': PALETA_ORIGINAL['texto']}
+        for chave, botao in self.botoes_cores.items():
+            valor = validar_cor(self.cores_em_edicao.get(chave))
+            cor = valor or padroes[chave]
+            botao.setText(f"{self._nomes_cores[chave]}  ·  {valor or 'Padrão'}")
+            botao.setStyleSheet(f"background: {cor}; color: {contraste(cor)}; "
+                                "border: 1px solid #888888; border-radius: 8px; "
+                                "padding: 9px 12px; font-weight: 700;")
+
+    def _escolher_cor(self, chave: str) -> None:
+        if chave not in CHAVES_CORES:
+            return
+        padroes = {'cor_fundo': PALETA_ORIGINAL['bg0'], 'cor_lateral': '#1C0629',
+                   'cor_cartoes': PALETA_ORIGINAL['surface'], 'cor_botoes': PALETA_ORIGINAL['violeta'],
+                   'cor_texto': PALETA_ORIGINAL['texto']}
+        atual = self.cores_em_edicao.get(chave) or padroes[chave]
+        cor = QColorDialog.getColor(QColor(atual), self, f"Escolher cor: {self._nomes_cores[chave]}")
+        if not cor.isValid():
+            return
+        self.cores_em_edicao[chave] = validar_cor(cor.name())
+        self._atualizar_amostras_cores()
+        self.cores_alteradas.emit(dict(self.cores_em_edicao))
+
+    def _restaurar_cores(self) -> None:
+        self.cores_em_edicao = {chave: '' for chave in CHAVES_CORES}
+        self._atualizar_amostras_cores()
+        self.cores_alteradas.emit(dict(self.cores_em_edicao))
+
     def _cartao_fontes_capas_visivel(self) -> None:
         c = Cartao("Capas escolhidas no Google")
         self.col.addWidget(c)
@@ -182,13 +244,15 @@ class SettingsPage(QWidget):
         linha.addWidget(self.chip_cookies)
         self.lbl_cookies = QLabel()
         self.lbl_cookies.setWordWrap(True)
-        self.lbl_cookies.setStyleSheet(f"color: {PALETA['texto_dim']};")
+        self.lbl_cookies.setProperty("papel_tema", "dim")
+        self.lbl_cookies.setStyleSheet("")
         linha.addWidget(self.lbl_cookies, 1)
         c.layout_.addLayout(linha)
 
         self.lbl_cookies_detalhe = QLabel()
         self.lbl_cookies_detalhe.setObjectName("fraco")
-        self.lbl_cookies_detalhe.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        self.lbl_cookies_detalhe.setProperty("papel_tema", "fraco")
+        self.lbl_cookies_detalhe.setStyleSheet("font-size: 11px;")
         self.lbl_cookies_detalhe.setWordWrap(True)
         c.layout_.addWidget(self.lbl_cookies_detalhe)
 
@@ -220,14 +284,16 @@ class SettingsPage(QWidget):
                       "sem mostrar títulos nem baixar vídeos. Se ela estiver vazia, o resultado pode ser inconclusivo. "
                       "Ele envia uma cópia temporária dos cookies ao YouTube e não altera o arquivo original.")
         dica.setWordWrap(True)
-        dica.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        dica.setProperty("papel_tema", "fraco")
+        dica.setStyleSheet("font-size: 11px;")
         c.layout_.addWidget(dica)
 
         aviso = QLabel("Segurança — o conteúdo do cookies.txt é tratado como informação sensível: "
                        "não aparece na interface e não deve ser compartilhado. "
                        "O yt-dlp pode usá-lo ao acessar os serviços de origem, inclusive na pesquisa.")
         aviso.setWordWrap(True)
-        aviso.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        aviso.setProperty("papel_tema", "fraco")
+        aviso.setStyleSheet("font-size: 11px;")
         c.layout_.addWidget(aviso)
 
     def _escolher_cookies(self) -> None:
@@ -323,7 +389,8 @@ class SettingsPage(QWidget):
         linha_api.addWidget(self.btn_api_txt)
         self.lbl_chave_onde = QLabel(seguranca.caminho_legivel())
         self.lbl_chave_onde.setWordWrap(True)
-        self.lbl_chave_onde.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        self.lbl_chave_onde.setProperty("papel_tema", "fraco")
+        self.lbl_chave_onde.setStyleSheet("font-size: 11px;")
         linha_api.addWidget(self.lbl_chave_onde, 1)
         c.layout_.addLayout(linha_api)
 
@@ -347,7 +414,8 @@ class SettingsPage(QWidget):
 
         self.lbl_ia = QLabel("-")
         self.lbl_ia.setWordWrap(True)
-        self.lbl_ia.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        self.lbl_ia.setProperty("papel_tema", "fraco")
+        self.lbl_ia.setStyleSheet("font-size: 11px;")
         c.layout_.addWidget(self.lbl_ia)
 
         nota = QLabel("Privacidade — vão para a Groq apenas título do vídeo, canal, URL, "
@@ -357,7 +425,8 @@ class SettingsPage(QWidget):
                       "Modo mais simples: crie o arquivo api.txt nesta pasta com a chave "
                       "dentro (só a chave, uma linha) — o app lê automaticamente.")
         nota.setWordWrap(True)
-        nota.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        nota.setProperty("papel_tema", "fraco")
+        nota.setStyleSheet("font-size: 11px;")
         c.layout_.addWidget(nota)
 
         self._atualizar_ia()
@@ -470,7 +539,8 @@ class SettingsPage(QWidget):
             self.chips_ferr[chave] = chip
             grade.addWidget(chip, i, 1, Qt.AlignLeft)
             det = QLabel("-")
-            det.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+            det.setProperty("papel_tema", "fraco")
+            det.setStyleSheet("font-size: 11px;")
             det.setWordWrap(True)
             self.lbl_ferr[chave] = det
             grade.addWidget(det, i, 2)
@@ -480,7 +550,8 @@ class SettingsPage(QWidget):
         nota = QLabel("Coloque ffmpeg.exe / yt-dlp.exe / deno.exe na pasta “ferramentas” (ou no PATH). "
                       "O ffprobe é opcional: sem ele o app mede a qualidade pelo próprio ffmpeg.")
         nota.setWordWrap(True)
-        nota.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        nota.setProperty("papel_tema", "fraco")
+        nota.setStyleSheet("font-size: 11px;")
         c.layout_.addWidget(nota)
 
         linha = QHBoxLayout()
@@ -682,7 +753,8 @@ class SettingsPage(QWidget):
             "responder 429 / verificação de robô.")
         linha.addWidget(self.spin_simultaneos)
         dica = QLabel("2 é o recomendado — acima de 4 a plataforma bloqueia.")
-        dica.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        dica.setProperty("papel_tema", "fraco")
+        dica.setStyleSheet("font-size: 11px;")
         linha.addWidget(dica, 1)
         c.layout_.addLayout(linha)
 
@@ -718,7 +790,8 @@ class SettingsPage(QWidget):
             "A busca automática usa candidatos que o catálogo indica como singles. "
             "Quando não encontra, não substitui pela capa do álbum; confira a imagem.")
         dica_ordem.setWordWrap(True)
-        dica_ordem.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        dica_ordem.setProperty("papel_tema", "fraco")
+        dica_ordem.setStyleSheet("font-size: 11px;")
         c.layout_.addWidget(dica_ordem)
 
         linha2 = QHBoxLayout()
@@ -816,7 +889,8 @@ class SettingsPage(QWidget):
             linha.addWidget(chk)
             desc = QLabel(fonte.descricao)
             desc.setWordWrap(True)
-            desc.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+            desc.setProperty("papel_tema", "fraco")
+            desc.setStyleSheet("font-size: 11px;")
             linha.addWidget(desc, 1)
             c.layout_.addLayout(linha)
 
@@ -825,7 +899,8 @@ class SettingsPage(QWidget):
         nota_padrao = QLabel("O yt-dlp é a fonte padrão do RiffLab. "
                              "As demais são opcionais e podem ficar desmarcadas.")
         nota_padrao.setWordWrap(True)
-        nota_padrao.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        nota_padrao.setProperty("papel_tema", "fraco")
+        nota_padrao.setStyleSheet("font-size: 11px;")
         c.layout_.addWidget(nota_padrao)
 
         fonte_yt = todas_as_fontes(self.config).get("ytdlp")
@@ -886,6 +961,7 @@ class SettingsPage(QWidget):
                            if chave not in self.fontes_capas_visiveis],
             ia_ativa=self.chk_ia.isChecked(),
             ia_modelo=self.combo_modelo_ia.currentText().strip() or cliente_groq.MODELO_PADRAO,
+            **{chave: validar_cor(self.cores_em_edicao.get(chave)) for chave in CHAVES_CORES},
         )
         self._atualizar_cookies()
         self._atualizar_ia()
@@ -898,6 +974,8 @@ class SettingsPage(QWidget):
         for chave, valor in PADROES.items():
             self.config[chave] = valor
         self.config.salvar()
+        self.cores_em_edicao = cores_do_config(self.config)
+        self._atualizar_amostras_cores()
         self.campo_saida.setText(str(self.config.pasta_saida))
         self._atualizar_aviso_pasta_saida()
         self.campo_pasta_baixados.setText(str(self.config.get("pasta_verificar_baixados") or ""))

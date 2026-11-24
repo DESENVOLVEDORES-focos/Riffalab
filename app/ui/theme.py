@@ -30,6 +30,8 @@ PALETA = {
     "texto_fraco": "#7B5C97",
 }
 
+PALETA_ORIGINAL = dict(PALETA)
+
 DESTAQUES = {
     "violeta": ("#C018E4", "#6C48F0"),
     "magenta": ("#FF2BD0", "#C018E4"),
@@ -40,9 +42,88 @@ DESTAQUES = {
 FONTE = "Segoe UI"
 
 
-def qss(acento: str = "violeta") -> str:
-    p = PALETA
+# Chaves em config.json. Valores não reconhecidos nunca entram no QSS.
+CHAVES_CORES = ('cor_fundo', 'cor_lateral', 'cor_cartoes', 'cor_botoes', 'cor_texto')
+
+
+def validar_cor(valor: object) -> str:
+    import re
+    if not isinstance(valor, str) or not re.fullmatch(r'#[0-9a-fA-F]{6}', valor):
+        return ''
+    return valor.upper()
+
+
+def cores_do_config(config) -> dict:
+    return {chave: validar_cor(config.get(chave)) for chave in CHAVES_CORES}
+
+
+def contraste(cor: str) -> str:
+    """Escolhe texto preto ou branco para manter legíveis os botões."""
+    c = QColor(cor)
+    def canal(v):
+        v = v / 255
+        return v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4
+    luz = .2126 * canal(c.red()) + .7152 * canal(c.green()) + .0722 * canal(c.blue())
+    return '#000000' if luz > .179 else '#FFFFFF'
+
+
+def _misturar(cor: str, outra: str, peso: float) -> str:
+    a, b = QColor(cor), QColor(outra)
+    valores = [round(x * (1 - peso) + y * peso) for x, y in
+               zip((a.red(), a.green(), a.blue()), (b.red(), b.green(), b.blue()))]
+    return QColor(*valores).name().upper()
+
+
+def paleta_personalizada(cores=None) -> dict:
+    cores = cores if isinstance(cores, dict) else {}
+    c = {k: validar_cor(cores.get(k)) for k in CHAVES_CORES}
+    p = dict(PALETA_ORIGINAL)
+    if c['cor_fundo']:
+        p['bg0'] = c['cor_fundo']
+        p['bg1'] = _misturar(c['cor_fundo'], '#FFFFFF', .035)
+    if c['cor_cartoes']:
+        p['surface'] = c['cor_cartoes']
+        oposto = contraste(c['cor_cartoes'])
+        p['surface2'] = _misturar(c['cor_cartoes'], oposto, .07)
+        p['surface3'] = _misturar(c['cor_cartoes'], oposto, .14)
+        p['border'] = _misturar(c['cor_cartoes'], oposto, .26)
+        p['border_hi'] = _misturar(c['cor_cartoes'], oposto, .42)
+    if c['cor_texto']:
+        p['texto'] = c['cor_texto']
+        p['texto_dim'] = _misturar(c['cor_texto'], p['surface'], .20)
+        p['texto_fraco'] = _misturar(c['cor_texto'], p['surface'], .32)
+    return p
+
+
+def qss(acento: str = "violeta", cores=None) -> str:
+    cores = cores if isinstance(cores, dict) else {}
+    p = paleta_personalizada(cores)
+    fundo = validar_cor(cores.get('cor_fundo'))
+    lateral = validar_cor(cores.get('cor_lateral'))
+    cartoes = validar_cor(cores.get('cor_cartoes'))
+    botoes = validar_cor(cores.get('cor_botoes'))
     c1, c2 = DESTAQUES.get(acento, DESTAQUES["violeta"])
+    if botoes:
+        c1, c2 = botoes, _misturar(botoes, '#FFFFFF', .12)
+    texto_botao = contraste(c1) if botoes else '#FFFFFF'
+    texto_hover = contraste(c2) if botoes else '#FFFFFF'
+    fundo_fim = p['bg1'] if fundo else '#1E0A2B'
+    lateral_inicio = lateral or ('#1C0629' if not fundo else p['bg1'])
+    lateral_fim = _misturar(lateral, '#000000', .12) if lateral else ('#150420' if not fundo else p['bg0'])
+    texto_lateral = contraste(lateral) if lateral else p['texto_dim']
+    logo_lateral = contraste(lateral) if lateral else '#FFFFFF'
+    selecao_lateral = alfa(c1, '35') if botoes else 'rgba(192,24,228,0.30)'
+    hover_lateral = alfa(c1, '20') if botoes else 'rgba(192,24,228,0.10)'
+    fundo_botao = c1 if botoes else p['surface2']
+    fundo_botao_hover = c2 if botoes else p['surface3']
+    texto_botao_normal = texto_botao if botoes else p['texto']
+    fundo_fantasma = c1 if botoes else 'transparent'
+    texto_fantasma = texto_botao if botoes else p['texto_dim']
+    fundo_campo_foco = p['bg1'] if fundo else '#1E0729'
+    fundo_busca = p['bg1'] if fundo else '#1B0526'
+    fundo_cabecalho = p['surface2'] if cartoes else '#2B0E3D'
+    fundo_alternado = p['surface2'] if cartoes else '#281036'
+    fundo_primario_hover = c2 if botoes else p['magenta']
     return f"""
 * {{ outline: 0; }}
 
@@ -53,9 +134,11 @@ QWidget {{
     font-size: 13px;
 }}
 
+QDialog {{ background: {p['bg1']}; }}
+
 QMainWindow, #fundoApp {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {p['bg0']}, stop:0.55 {p['bg1']}, stop:1 #1E0A2B);
+        stop:0 {p['bg0']}, stop:0.55 {p['bg1']}, stop:1 {fundo_fim});
 }}
 
 /* ---------------------------------------------------------------- cartões */
@@ -83,17 +166,17 @@ QFrame#cartaoResultado:hover {{
 /* --------------------------------------------------------------- barra lat */
 QFrame#barraLateral {{
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 #1C0629, stop:1 #150420);
+        stop:0 {lateral_inicio}, stop:1 {lateral_fim});
     border-right: 1px solid {p['border']};
 }}
 QLabel#logo {{
-    color: #fff;
+    color: {logo_lateral};
     font-size: 26px;
     font-weight: 800;
     letter-spacing: 2px;
 }}
 QLabel#logoSub {{
-    color: {p['texto_fraco']};
+    color: {texto_lateral};
     font-size: 10px;
     letter-spacing: 2px;
 }}
@@ -101,7 +184,7 @@ QPushButton#nav {{
     background: transparent;
     border: none;
     border-left: 3px solid transparent;
-    color: {p['texto_dim']};
+    color: {texto_lateral};
     text-align: left;
     padding: 11px 16px;
     font-size: 13.5px;
@@ -109,14 +192,14 @@ QPushButton#nav {{
     border-radius: 0px;
 }}
 QPushButton#nav:hover {{
-    background: rgba(192,24,228,0.10);
-    color: {p['texto']};
+    background: {hover_lateral};
+    color: {texto_lateral};
 }}
 QPushButton#nav:checked {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 rgba(192,24,228,0.30), stop:1 rgba(192,24,228,0.02));
+        stop:0 {selecao_lateral}, stop:1 transparent);
     border-left: 3px solid {c1};
-    color: #fff;
+    color: {logo_lateral};
 }}
 
 /* ---------------------------------------------------------------- títulos */
@@ -134,38 +217,39 @@ QLabel#destaque {{
 
 /* ------------------------------------------------------------------ botões */
 QPushButton {{
-    background: {p['surface2']};
+    background: {fundo_botao};
     border: 1px solid {p['border']};
     border-radius: 10px;
     padding: 9px 16px;
-    color: {p['texto']};
+    color: {texto_botao_normal};
     font-weight: 600;
 }}
-QPushButton:hover {{ background: {p['surface3']}; border: 1px solid {c1}; }}
-QPushButton:pressed {{ background: {p['surface']}; }}
+QPushButton:hover {{ background: {fundo_botao_hover}; color: {texto_hover}; border: 1px solid {c1}; }}
+QPushButton:pressed {{ background: {fundo_botao_hover}; color: {texto_hover}; }}
 QPushButton:disabled {{ color: {p['texto_fraco']}; border-color: #33203F; }}
 
 QPushButton#primario {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {c1}, stop:1 {c2});
     border: none;
-    color: #fff;
+    color: {texto_botao};
     font-weight: 800;
     padding: 10px 22px;
     border-radius: 11px;
 }}
 QPushButton#primario:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {p['magenta']}, stop:1 {c1});
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {fundo_primario_hover}, stop:1 {c1});
+    color: {texto_hover};
 }}
 QPushButton#primario:disabled {{ background: #3A2050; color: {p['texto_fraco']}; }}
 
 QPushButton#fantasma {{
-    background: transparent;
+    background: {fundo_fantasma};
     border: 1px solid {p['border']};
-    color: {p['texto_dim']};
+    color: {texto_fantasma};
     padding: 7px 13px;
     font-weight: 600;
 }}
-QPushButton#fantasma:hover {{ color: #fff; border-color: {c1}; }}
+QPushButton#fantasma:hover {{ background: {fundo_botao_hover}; color: {texto_hover}; border-color: {c1}; }}
 
 QPushButton#perigo {{
     background: rgba(255,77,109,0.14);
@@ -185,13 +269,13 @@ QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {{
 }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
     border: 1px solid {c1};
-    background: #1E0729;
+    background: {fundo_campo_foco};
 }}
 QLineEdit#busca {{
     font-size: 15px;
     padding: 13px 18px;
     border-radius: 14px;
-    background: #1B0526;
+    background: {fundo_busca};
 }}
 QLineEdit#busca:focus {{ border: 1px solid {c1}; }}
 QComboBox#seletorFormatos {{ padding: 5px 9px; border-radius: 8px; }}
@@ -242,10 +326,10 @@ QTableWidget, QTableView {{
     gridline-color: #33194A;
     selection-background-color: rgba(192,24,228,0.28);
     selection-color: #fff;
-    alternate-background-color: #281036;
+    alternate-background-color: {fundo_alternado};
 }}
 QHeaderView::section {{
-    background: #2B0E3D;
+    background: {fundo_cabecalho};
     color: {p['texto_dim']};
     border: none;
     border-bottom: 1px solid {p['border']};
@@ -288,6 +372,8 @@ QLabel#alerta {{ color: {p['amarelo']}; font-weight: 700; }}
 QLabel#erro {{ color: {p['vermelho']}; font-weight: 700; }}
 QLabel#dim {{ color: {p['texto_dim']}; }}
 QLabel#fraco {{ color: {p['texto_fraco']}; font-size: 11.5px; }}
+QLabel[papel_tema="dim"] {{ color: {p['texto_dim']}; }}
+QLabel[papel_tema="fraco"] {{ color: {p['texto_fraco']}; }}
 """
 
 
@@ -304,22 +390,23 @@ def alfa(cor: str, valor: str = "1A") -> str:
     return f"#{valor}{limpa}"
 
 
-def aplicar_tema(app, acento: str = "violeta") -> None:
+def aplicar_tema(app, acento: str = "violeta", cores=None) -> None:
+    p = paleta_personalizada(cores)
     app.setStyle("Fusion")
-    app.setStyleSheet(qss(acento))
-    # paleta escura (afeta diálogos nativos e menus)
+    app.setStyleSheet(qss(acento, cores))
+    botoes = validar_cor((cores or {}).get('cor_botoes')) if isinstance(cores, dict) else ''
     pal = QPalette()
-    pal.setColor(QPalette.Window, QColor(PALETA["bg1"]))
-    pal.setColor(QPalette.WindowText, QColor(PALETA["texto"]))
-    pal.setColor(QPalette.Base, QColor(PALETA["surface"]))
-    pal.setColor(QPalette.AlternateBase, QColor(PALETA["surface2"]))
-    pal.setColor(QPalette.Text, QColor(PALETA["texto"]))
-    pal.setColor(QPalette.Button, QColor(PALETA["surface2"]))
-    pal.setColor(QPalette.ButtonText, QColor(PALETA["texto"]))
-    pal.setColor(QPalette.Highlight, QColor(PALETA["violeta"]))
-    pal.setColor(QPalette.HighlightedText, QColor("#ffffff"))
-    pal.setColor(QPalette.ToolTipBase, QColor(PALETA["surface3"]))
-    pal.setColor(QPalette.ToolTipText, QColor(PALETA["texto"]))
+    pal.setColor(QPalette.Window, QColor(p["bg1"]))
+    pal.setColor(QPalette.WindowText, QColor(p["texto"]))
+    pal.setColor(QPalette.Base, QColor(p["surface"]))
+    pal.setColor(QPalette.AlternateBase, QColor(p["surface2"]))
+    pal.setColor(QPalette.Text, QColor(p["texto"]))
+    pal.setColor(QPalette.Button, QColor(botoes or p["surface2"]))
+    pal.setColor(QPalette.ButtonText, QColor(contraste(botoes) if botoes else p["texto"]))
+    pal.setColor(QPalette.Highlight, QColor(botoes or p["violeta"]))
+    pal.setColor(QPalette.HighlightedText, QColor(contraste(botoes) if botoes else "#ffffff"))
+    pal.setColor(QPalette.ToolTipBase, QColor(p["surface3"]))
+    pal.setColor(QPalette.ToolTipText, QColor(p["texto"]))
     app.setPalette(pal)
 
 

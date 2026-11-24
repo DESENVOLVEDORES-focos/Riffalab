@@ -1,5 +1,7 @@
 # RiffLab
 
+> **Versão 0.9.0:** personalize e salve as cores em Configurações. Veja [PERSONALIZAR-CORES.md](PERSONALIZAR-CORES.md).
+
 > **Versão 0.8.0:** as capas são escolhidas manualmente no Google. Consulte [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md); guias de versões antigas sobre buscas automáticas de capa são históricos.
 
 > **Fluxo atualizado:** consulte [COMECE-AQUI.md](COMECE-AQUI.md) para a instalação e a interface atual de três páginas. O texto e as imagens históricas abaixo descrevem a versão original e podem mencionar opções, telas e processamento simultâneo que não existem mais na interface atual.

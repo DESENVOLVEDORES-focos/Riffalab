@@ -111,8 +111,8 @@ def main() -> int:
     if icone.exists():
         app.setWindowIcon(QIcon(str(icone)))
 
-    from app.ui.theme import aplicar_tema
-    aplicar_tema(app, str(config.get("cor_destaque") or "violeta"))
+    from app.ui.theme import aplicar_tema, cores_do_config
+    aplicar_tema(app, str(config.get("cor_destaque") or "violeta"), cores_do_config(config))
 
     # exceções não tratadas aparecem para o usuário e vão para o log
     def tratar_excecao(tipo, valor, tb):

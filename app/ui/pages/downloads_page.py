@@ -61,7 +61,8 @@ class LinhaJob(QFrame):
         lay.addLayout(topo)
 
         self.detalhe = QLabel()
-        self.detalhe.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 11.5px;")
+        self.detalhe.setProperty("papel_tema", "dim")
+        self.detalhe.setStyleSheet("font-size: 11.5px;")
         lay.addWidget(self.detalhe)
 
         linha = QHBoxLayout()
@@ -91,7 +92,8 @@ class LinhaJob(QFrame):
         self.mensagem.setTextFormat(Qt.PlainText)
         self.mensagem.setWordWrap(True)
         self.mensagem.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.mensagem.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        self.mensagem.setProperty("papel_tema", "fraco")
+        self.mensagem.setStyleSheet("font-size: 11px;")
         lay.addWidget(self.mensagem)
 
         self.atualizar(self.job)

@@ -274,7 +274,8 @@ class SearchPage(QWidget):
 
         self.vazio = QLabel(self._texto_vazio())
         self.vazio.setAlignment(Qt.AlignCenter)
-        self.vazio.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 13px;")
+        self.vazio.setProperty("papel_tema", "fraco")
+        self.vazio.setStyleSheet("font-size: 13px;")
         self.lista.insertWidget(0, self.vazio)
 
         # ------------------------------------------------------- rodapé (§10)

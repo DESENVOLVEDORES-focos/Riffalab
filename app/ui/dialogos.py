@@ -32,10 +32,8 @@ def _pixmap(caminho: str, lado: int) -> Optional[QPixmap]:
 
 def _estilo_dialogo(dialogo: QDialog, largura: int = 620) -> None:
     dialogo.setStyleSheet(
-        f"QDialog {{ background: {PALETA['bg1']}; }}"
-        f"QLabel {{ color: {PALETA['texto']}; }}"
-        f"QScrollArea {{ border: none; background: transparent; }}"
-        f"QWidget#areaLista {{ background: transparent; }}")
+        "QScrollArea { border: none; background: transparent; }"
+        "QWidget#areaLista { background: transparent; }")
 
 
 # ---------------------------------------------------------------- etapa 5
@@ -62,7 +60,8 @@ class DialogoConfirmar(QDialog):
             "O RiffLab vai baixar o áudio, identificar a música, usar a capa escolhida e "
             "gravar as tags. Nada é baixado antes da sua confirmação.")
         explicacao.setWordWrap(True)
-        explicacao.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 12px;")
+        explicacao.setProperty("papel_tema", "dim")
+        explicacao.setStyleSheet("font-size: 12px;")
         fora.addWidget(explicacao)
 
         area = QScrollArea()
@@ -91,7 +90,8 @@ class DialogoConfirmar(QDialog):
                                               hhmmss(r.duracao_s) if r.duracao_s else "")
                                    if p)
             sub = QLabel(detalhe or "—")
-            sub.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 11.5px;")
+            sub.setProperty("papel_tema", "dim")
+            sub.setStyleSheet("font-size: 11.5px;")
             textos.addWidget(sub)
             lay.addLayout(textos, 1)
             formato = pedido.get("formato")
@@ -220,7 +220,8 @@ class DialogoCapas(QDialog):
         self.lbl_album.setWordWrap(True)
         dados.addWidget(self.lbl_album)
         self.lbl_credito = QLabel("")
-        self.lbl_credito.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 12px;")
+        self.lbl_credito.setProperty("papel_tema", "dim")
+        self.lbl_credito.setStyleSheet("font-size: 12px;")
         self.lbl_credito.setWordWrap(True)
         dados.addWidget(self.lbl_credito)
         self.chips = QHBoxLayout()
@@ -257,7 +258,8 @@ class DialogoCapas(QDialog):
             "O Google abre no navegador. Salve a imagem na pasta Download de Capas e clique em "
             "Escolher imagem salva, ou copie a imagem e clique em Colar. Confira antes de usar.")
         self.lbl_regra.setWordWrap(True)
-        self.lbl_regra.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
+        self.lbl_regra.setProperty("papel_tema", "fraco")
+        self.lbl_regra.setStyleSheet("font-size: 11px;")
         fora.addWidget(self.lbl_regra)
 
         linha_botoes = QHBoxLayout()

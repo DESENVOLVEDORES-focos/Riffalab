@@ -21,7 +21,7 @@ from typing import Any, Dict
 
 APP_NOME = "RiffLab"
 APP_SUB = "pesquisa · qualidade · metadados"
-APP_VERSAO = "0.8.0"
+APP_VERSAO = "0.9.0"
 
 # ------------------------------------------------------------------ caminhos
 def _raiz() -> Path:
@@ -98,6 +98,12 @@ PADROES: Dict[str, Any] = {
     # aparência
     "tema": "neon-graffiti",
     "cor_destaque": "violeta",
+    # Vazio mantém o tema original; cores personalizadas usam #RRGGBB.
+    "cor_fundo": "",
+    "cor_lateral": "",
+    "cor_cartoes": "",
+    "cor_botoes": "",
+    "cor_texto": "",
 }
 
 def garantir_pastas() -> None:

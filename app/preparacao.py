@@ -107,6 +107,23 @@ def identidade_para_capa(meta, ident, config, edicao=None):
     return {'titulo': titulo, 'artista': artista, 'origem': origem, 'aviso': aviso}, usar_ident
 
 
+def preparar_previa(resultado: TrackResult, config: Config, edicao=None) -> Dict[str, Any]:
+    """Identidade provisória local para abrir a janela sem esperar a rede."""
+    from dataclasses import replace
+    from .models import CoverResult
+    campos = {k: str(edicao[k]).strip() for k in ('titulo', 'artista', 'album')
+              if edicao is not None and k in edicao}
+    consulta = replace(resultado, **campos) if campos else resultado
+    meta = pipeline.montar_metadados(consulta, config, consultar_catalogos=False)
+    apagar = aplicar_edicao(meta, edicao)
+    identidade, _ = identidade_para_capa(meta, None, config, edicao)
+    identidade['origem'] = 'dados provisórios'
+    identidade['aviso'] = ('Identificando a música em segundo plano. Você já pode pesquisar, '
+                            'mas confira a identidade atualizada antes de confirmar a capa.')
+    return {'meta': meta, 'ident': None, 'capa': CoverResult(), 'apagar_tags': apagar,
+            'consulta_capa': identidade}
+
+
 def preparar_musica(resultado: TrackResult, config: Config, progresso=None,
                      edicao=None, sem_capa: bool = False) -> Dict[str, Any]:
     """Identifica a faixa para revisão manual; não baixa áudio nem busca capas.

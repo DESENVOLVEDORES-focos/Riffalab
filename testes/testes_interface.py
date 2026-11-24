@@ -1459,6 +1459,103 @@ class Interface(unittest.TestCase):
         self.assertIs(linha.preparacao, anterior)
         self.assertFalse(d._preparando)
 
+    def test_janela_abre_e_permite_pesquisa_enquanto_metadados_aguardam(self):
+        import threading
+        from PySide6.QtCore import QTimer
+        from PySide6.QtGui import QDesktopServices
+        from app.models import CoverResult, TrackMeta, TrackResult
+        from app.ui.pages import downloads_page
+        d = self.janela.pagina_downloads
+        d.adicionar_selecao({'resultado': TrackResult('1', 'ytdlp', 'Canção', 'Pessoa')})
+        linha = d.selecoes[0]
+        liberar = threading.Event()
+        observacoes = []
+        atual = []
+        real = downloads_page.DialogoCapas
+        def criar(*args):
+            dlg = real(*args); atual.append(dlg); return dlg
+        def lento(*args, **kwargs):
+            if not liberar.wait(4): raise RuntimeError('timeout de teste')
+            return {'meta': TrackMeta(titulo='Canção corrigida', artista='Pessoa', album='Disco'),
+                    'ident':None, 'capa':CoverResult(), 'consulta_capa':{
+                        'titulo':'Canção corrigida','artista':'Pessoa','origem':'IA'}}
+        def conferir_aberto():
+            dlg = atual[0]
+            observacoes.append(('aberto', dlg.isVisible(), dlg.btn_google.isEnabled(),
+                                dlg.btn_colar.isEnabled(), dlg.btn_sem.isEnabled(),
+                                'segundo plano' in dlg.lbl_consulta.text()))
+            dlg.btn_google.click()
+            liberar.set()
+            verificar()
+        def verificar():
+            dlg = atual[0]
+            if not dlg.isVisible():
+                return
+            if dlg.btn_sem.isEnabled():
+                observacoes.append(('concluido', dlg.musica['titulo'], dlg.lbl_consulta.text()))
+                dlg.btn_sem.click()
+            else:
+                QTimer.singleShot(10, verificar)
+        def timeout():
+            liberar.set()
+            if atual and atual[0].isVisible(): atual[0].reject()
+        try:
+            with patch.object(downloads_page, 'preparar_musica', side_effect=lento), \
+                 patch.object(downloads_page, 'DialogoCapas', side_effect=criar), \
+                 patch.object(QDesktopServices, 'openUrl', return_value=True) as abrir:
+                watchdog = QTimer()
+                watchdog.setSingleShot(True)
+                watchdog.timeout.connect(timeout)
+                QTimer.singleShot(30, conferir_aberto)
+                watchdog.start(2000)
+                linha.btn_capa.click()
+                watchdog.stop()
+            self.assertEqual(observacoes[0], ('aberto', True, True, True, False, True))
+            self.assertEqual(observacoes[1][0:2], ('concluido', 'Canção corrigida'))
+            self.assertIn('identidade mudou', observacoes[1][2])
+            self.assertEqual(abrir.call_count, 1)
+            self.assertEqual(linha.preparacao['meta'].album, 'Disco')
+            self.assertFalse(linha.preparacao['capa'].ok)
+        finally:
+            liberar.set()
+
+    def test_cancelar_descarta_resultado_tardio_da_preparacao(self):
+        from PySide6.QtCore import QTimer
+        from app.models import CoverResult, TrackMeta, TrackResult
+        from app.ui.pages import downloads_page
+        d = self.janela.pagina_downloads
+        d.adicionar_selecao({'resultado': TrackResult('1', 'ytdlp', 'Canção', 'Pessoa')})
+        linha = d.selecoes[0]
+        chamadas = []
+        real = downloads_page.DialogoCapas
+        def criar(*args):
+            dlg = real(*args)
+            QTimer.singleShot(10, dlg.reject)
+            return dlg
+        with patch.object(downloads_page, 'DialogoCapas', side_effect=criar), \
+             patch.object(downloads_page.EXECUTOR_GLOBAL, 'rodar', side_effect=lambda *a, **kw: chamadas.append(kw)):
+            linha.btn_capa.click()
+            self.assertFalse(d._preparando)
+            self.assertIsNone(linha.preparacao)
+            chamadas[0]['ao_resultado']({'meta': TrackMeta(titulo='Outro', artista='Pessoa'),
+                                        'capa':CoverResult(), 'ident':None})
+            self.assertIsNone(linha.preparacao)
+            self.assertFalse(d._preparando)
+
+    def test_falha_sincrona_nao_deixa_janela_aberta_nem_trava_fila(self):
+        from app.models import TrackResult
+        from app.ui.pages import downloads_page
+        d = self.janela.pagina_downloads
+        d.adicionar_selecao({'resultado': TrackResult('1', 'ytdlp', 'Canção', 'Pessoa')})
+        linha = d.selecoes[0]
+        def falhar(*args, **kwargs): kwargs['ao_erro']('falha simulada')
+        with patch.object(downloads_page.EXECUTOR_GLOBAL, 'rodar', side_effect=falhar), \
+             patch.object(downloads_page.QMessageBox, 'warning') as aviso:
+            linha.btn_capa.click()
+        aviso.assert_called_once()
+        self.assertFalse(d._preparando)
+        self.assertIsNone(linha.preparacao)
+
     def test_aviso_inicial_sem_widget_de_versao_anterior_e_timer_real(self):
         import sys
         from PySide6.QtTest import QTest

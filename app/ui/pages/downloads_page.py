@@ -17,7 +17,7 @@ from ...config import Config
 from ...downloader import GerenciadorFila
 from ...logging_setup import registrar_erro, texto_seguro
 from ...models import CoverResult, hhmmss
-from ...preparacao import preparar_musica, aplicar_edicao
+from ...preparacao import preparar_musica, preparar_previa, aplicar_edicao
 from ...workers import EXECUTOR_GLOBAL
 from ..dialogos import DialogoCapas
 from ..theme import PALETA, alfa
@@ -278,6 +278,7 @@ class DownloadsPage(QWidget):
         self._restaurando = True
         self._erro_recuperar = ""
         self._a_preparar: list[LinhaSelecao] = []
+        self._geracao_preparacao = 0
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(26, 22, 26, 16)
@@ -466,10 +467,23 @@ class DownloadsPage(QWidget):
         if self._preparando or not linhas:
             return
         self._preparando = True
+        self._geracao_preparacao += 1
         self._sem_capa_lote = sem_capa
         self._a_preparar = list(linhas)
         self._atualizar_resumo()
         self._proxima_capa()
+
+    @staticmethod
+    def _musica_dialogo(dados: dict) -> dict:
+        meta = dados['meta']
+        consulta = dados.get('consulta_capa') or {}
+        return {'titulo': consulta.get('titulo', meta.titulo),
+                'artista': consulta.get('artista', meta.artista),
+                'consulta_capa': consulta, 'album': meta.album, 'ano': meta.ano,
+                'metadados': {'titulo': meta.titulo, 'artista': meta.artista,
+                              'album': meta.album, 'ano': meta.ano, 'faixa': meta.faixa,
+                              'genero': meta.genero, 'artista_album': meta.artista_album,
+                              'participacoes': ', '.join(meta.artistas_participantes)}}
 
     def _proxima_capa(self) -> None:
         if not self._a_preparar:
@@ -479,41 +493,82 @@ class DownloadsPage(QWidget):
             return
         linha = self._a_preparar.pop(0)
         r = linha.pedido['resultado']
+        geracao = self._geracao_preparacao
         self.resumo.setText(f'Preparando metadados: {r.artista} — {r.titulo}…')
-        EXECUTOR_GLOBAL.rodar(
-            preparar_musica, r, self.config, edicao=linha.pedido.get('edicao'),
-            sem_capa=self._sem_capa_lote,
-            ao_resultado=lambda dados, l=linha: self._capa_pronta(l, dados),
-            ao_erro=self._falha_preparacao)
-
-    def _capa_pronta(self, linha: LinhaSelecao, dados: dict) -> None:
-        if not self._preparando or linha not in self.selecoes:
-            return
-        capa = dados['capa']
-        meta = dados['meta']
         if self._sem_capa_lote:
-            linha.definir_preparacao(dados)
-            self._proxima_capa()
+            EXECUTOR_GLOBAL.rodar(
+                preparar_musica, r, self.config, edicao=linha.pedido.get('edicao'),
+                sem_capa=True,
+                ao_resultado=lambda dados: self._capa_pronta(linha, dados)
+                    if geracao == self._geracao_preparacao else None,
+                ao_erro=lambda mensagem: self._falha_preparacao(mensagem)
+                    if geracao == self._geracao_preparacao else None)
             return
-        consulta = dados.get('consulta_capa') or {}
-        dialogo = DialogoCapas(self, capa, {'titulo': consulta.get('titulo', meta.titulo),
-                                            'artista': consulta.get('artista', meta.artista),
-                                            'consulta_capa': consulta,
-                                            'album': meta.album, 'ano': meta.ano,
-                                            'metadados': {'titulo': meta.titulo, 'artista': meta.artista,
-                                                          'album': meta.album, 'ano': meta.ano,
-                                                          'faixa': meta.faixa, 'genero': meta.genero,
-                                                          'artista_album': meta.artista_album,
-                                                          'participacoes': ', '.join(meta.artistas_participantes)}})
-        if dialogo.exec() != QDialog.Accepted:
+
+        # Mostrar a janela com dados locais sem aguardar a IA nem os catálogos.
+        # O resultado é obrigatório antes de confirmar, mas pesquisar e colar já
+        # funcionam. Cancelar invalida o retorno tardio da tarefa.
+        try:
+            previa = linha.preparacao or preparar_previa(r, self.config, linha.pedido.get('edicao'))
+            dialogo = DialogoCapas(self, previa['capa'], self._musica_dialogo(previa))
+        except Exception as exc:
+            self._falha_preparacao(f'{type(exc).__name__}: {exc}')
+            return
+        estado = {'ativo': True, 'dados': linha.preparacao, 'erro': ''}
+        if estado['dados'] is None:
+            dialogo.definir_pendente(True)
+        dialogo.show()
+
+        def pronto(dados):
+            if not estado['ativo'] or geracao != self._geracao_preparacao:
+                return
+            estado['dados'] = dados
+            dialogo.atualizar_musica(self._musica_dialogo(dados))
+
+        def falhou(mensagem):
+            if not estado['ativo'] or geracao != self._geracao_preparacao:
+                return
+            estado['erro'] = mensagem
+            dialogo.reject()
+
+        if estado['dados'] is None:
+            try:
+                EXECUTOR_GLOBAL.rodar(preparar_musica, r, self.config,
+                    edicao=linha.pedido.get('edicao'), sem_capa=False,
+                    ao_resultado=pronto, ao_erro=falhou)
+            except Exception as exc:
+                estado['ativo'] = False
+                dialogo.close()
+                self._falha_preparacao(f'{type(exc).__name__}: {exc}')
+                return
+        # Um executor de teste ou uma falha síncrona pode concluir antes de exec().
+        if estado['erro']:
+            estado['ativo'] = False
+            dialogo.close()
+            self._falha_preparacao(estado['erro'])
+            return
+        resultado = dialogo.exec()
+        estado['ativo'] = False
+        if estado['erro']:
+            self._falha_preparacao(estado['erro'])
+            return
+        if resultado != QDialog.Accepted or estado['dados'] is None:
             self._cancelar_preparacao()
             return
+        dados = estado['dados']
         capa = dialogo.escolhida if not dialogo.recusou else None
         dados['capa'] = capa or CoverResult(observacao='Usuário escolheu não usar capa')
         linha.definir_preparacao(dados)
         self._proxima_capa()
 
+    def _capa_pronta(self, linha: LinhaSelecao, dados: dict) -> None:
+        if not self._preparando or linha not in self.selecoes:
+            return
+        linha.definir_preparacao(dados)
+        self._proxima_capa()
+
     def _cancelar_preparacao(self) -> None:
+        self._geracao_preparacao += 1
         self._a_preparar.clear()
         self._preparando = False
         self._atualizar_resumo()

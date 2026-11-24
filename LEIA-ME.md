@@ -1,6 +1,6 @@
 # RiffLab
 
-> **Versão 0.10.0:** pesquise capas no Google somente quando desejar e cole a imagem; confira também as sugestões de metadados. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
+> **Versão 0.10.1:** a janela de capa abre enquanto os metadados são identificados em segundo plano; pesquise no Google somente quando desejar e confira os dados antes de confirmar. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
 
 > **Versão 0.9.0:** personalize e salve as cores em Configurações. Veja [PERSONALIZAR-CORES.md](PERSONALIZAR-CORES.md).
 

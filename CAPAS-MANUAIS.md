@@ -1,15 +1,15 @@
-# RiffLab 0.10.0 — capa manual e revisão dos dados
+# RiffLab 0.10.1 — capa manual e revisão dos dados
 
 A pesquisa de capas é manual: a janela **não abre o Google automaticamente** e não consulta serviços de capas. A IA opcional e os catálogos de metadados são independentes da escolha da imagem.
 
 ## Escolher a capa
 
 1. Em Downloads, clique em **Escolher capa** ou em **Revisar capas selecionadas** para seguir uma música de cada vez.
-2. Quando quiser pesquisar, clique em **Pesquisar imagens no Google**. Confira se a imagem corresponde à música e se você tem direito de usá-la.
+2. A janela abre com dados provisórios enquanto a IA (se ativa) e os catálogos procuram os metadados em segundo plano. Você já pode clicar em **Pesquisar imagens no Google** e copiar a imagem; o Google não abre sozinho. Se a identidade mudar após a pesquisa, haverá um aviso: confira-a e pesquise novamente se necessário.
 3. No navegador, clique com o botão direito na imagem desejada e escolha **Copiar imagem**. Volte ao RiffLab e clique em **Colar imagem copiada**. Não é preciso baixar nem selecionar um arquivo. A imagem colada será salva em `RiffLab/Download de Capas`, sem substituir imagens anteriores.
-4. Confira a prévia e pressione **Usar esta capa**, ou **Não usar capa**. O download só começa depois da confirmação na tela Downloads.
+4. Aguarde a identificação dos metadados terminar, confira os dados e a prévia e pressione **Usar esta capa**, ou **Não usar capa**. O download só começa depois da confirmação na tela Downloads.
 
-Copie a imagem propriamente dita, não apenas o endereço. JPEG, PNG e WebP são aceitos; WebP é convertido para PNG na inclusão no MP3. A imagem precisa ter no mínimo 300 pixels de cada lado e no máximo 6000, até 15 MB e proporção adequada a uma capa.
+Você pode fechar a janela para cancelar enquanto os dados estão sendo identificados; a busca pode demorar mais quando os serviços estiverem lentos. Copie a imagem propriamente dita, não apenas o endereço. JPEG, PNG e WebP são aceitos; WebP é convertido para PNG na inclusão no MP3. A imagem precisa ter no mínimo 300 pixels de cada lado e no máximo 6000, até 15 MB e proporção adequada a uma capa.
 
 ## Confira os oito campos
 

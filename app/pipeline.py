@@ -40,7 +40,7 @@ def _pasta_temp(uid: str) -> Path:
 def montar_metadados(resultado: TrackResult, config: Config,
                      extra: Optional[Dict[str, Any]] = None,
                      progresso: Progresso = None,
-                     ident=None) -> TrackMeta:
+                     ident=None, consultar_catalogos: bool = True) -> TrackMeta:
     """Cruza fonte + iTunes/MusicBrainz + identificação por IA para fechar os dados.
 
     Dados explícitos do usuário são aplicados na preparação. A IA sugere
@@ -85,7 +85,7 @@ def montar_metadados(resultado: TrackResult, config: Config,
     # O catálogo procura a gravação e retorna um álbum associado.
     album_busca, ano_busca = '', None
     dados: Dict[str, Any] = {}
-    if config.get("gravar_tags", True):
+    if consultar_catalogos and config.get("gravar_tags", True):
         _emitir(progresso, 52, "consultando metadados…")
         try:
             dados = covers.metadados_completos(titulo_busca, artista_busca, album_busca, ano_busca)

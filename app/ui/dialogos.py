@@ -165,6 +165,8 @@ class DialogoCapas(QDialog):
         self.opcoes: List[CoverResult] = ([capa] + list(getattr(capa, "alternativas", []) or [])) if capa and capa.ok else []
         self.escolhida: Optional[CoverResult] = capa if self.opcoes else None
         self.recusou = False
+        self._metadados_pendentes = False
+        self._busca_provisoria = None
 
         fora = QVBoxLayout(self)
         fora.setContentsMargins(22, 20, 22, 18)
@@ -173,33 +175,16 @@ class DialogoCapas(QDialog):
         titulo = QLabel("Esta é a capa que será gravada no MP3?")
         titulo.setStyleSheet("font-size: 17px; font-weight: 800;")
         fora.addWidget(titulo)
-        consulta = self.musica.get('consulta_capa') or {}
-        if consulta:
-            texto = (f"Busca da capa ({consulta.get('origem') or 'dados disponíveis'}): "
-                     f"{consulta.get('artista') or 'artista não informado'} — "
-                     f"{consulta.get('titulo') or 'título não informado'}")
-            if consulta.get('aviso'):
-                texto += "\n" + str(consulta['aviso'])
-            self.lbl_consulta = QLabel(texto)
-            self.lbl_consulta.setTextFormat(Qt.PlainText)
-            self.lbl_consulta.setWordWrap(True)
-            self.lbl_consulta.setStyleSheet(f"color: {PALETA['amarelo']}; font-size: 11.5px;")
-            fora.addWidget(self.lbl_consulta)
-        metadados = self.musica.get('metadados') or {}
-        if metadados:
-            texto = (f"Dados para o MP3 — {metadados.get('artista') or 'artista não identificado'} — "
-                     f"{metadados.get('titulo') or 'título não identificado'}\n"
-                     f"Álbum: {metadados.get('album') or 'não identificado'} · "
-                     f"Ano: {metadados.get('ano') or 'não identificado'} · "
-                     f"Faixa: {metadados.get('faixa') or 'não identificada'} · "
-                     f"Gênero: {metadados.get('genero') or 'não identificado'}\n"
-                     f"Artista do álbum: {metadados.get('artista_album') or 'não identificado'} · "
-                     f"Participações: {metadados.get('participacoes') or 'não identificadas'}\n"
-                     "São sugestões: confira e, se necessário, cancele e use Editar dados.")
-            self.lbl_metadados = QLabel(texto)
-            self.lbl_metadados.setTextFormat(Qt.PlainText)
-            self.lbl_metadados.setWordWrap(True)
-            fora.addWidget(self.lbl_metadados)
+        self.lbl_consulta = QLabel()
+        self.lbl_consulta.setTextFormat(Qt.PlainText)
+        self.lbl_consulta.setWordWrap(True)
+        self.lbl_consulta.setStyleSheet(f"color: {PALETA['amarelo']}; font-size: 11.5px;")
+        fora.addWidget(self.lbl_consulta)
+        self.lbl_metadados = QLabel()
+        self.lbl_metadados.setTextFormat(Qt.PlainText)
+        self.lbl_metadados.setWordWrap(True)
+        fora.addWidget(self.lbl_metadados)
+        self._atualizar_textos()
         corpo = QHBoxLayout()
         corpo.setSpacing(16)
 
@@ -300,6 +285,49 @@ class DialogoCapas(QDialog):
             self.lbl_imagem.setText("Escolha uma imagem")
             self.lbl_motivo.setText(capa.observacao or "Copie e cole uma imagem, ou continue sem capa.")
 
+    def _atualizar_textos(self) -> None:
+        consulta = self.musica.get('consulta_capa') or {}
+        texto = (f"Busca da capa ({consulta.get('origem') or 'dados disponíveis'}): "
+                 f"{consulta.get('artista') or 'artista não informado'} — "
+                 f"{consulta.get('titulo') or 'título não informado'}")
+        if consulta.get('aviso'):
+            texto += "\n" + str(consulta['aviso'])
+        self.lbl_consulta.setText(texto)
+        self.lbl_consulta.setVisible(bool(consulta))
+        metadados = self.musica.get('metadados') or {}
+        texto = (f"Dados para o MP3 — {metadados.get('artista') or 'artista não identificado'} — "
+                 f"{metadados.get('titulo') or 'título não identificado'}\n"
+                 f"Álbum: {metadados.get('album') or 'não identificado'} · "
+                 f"Ano: {metadados.get('ano') or 'não identificado'} · "
+                 f"Faixa: {metadados.get('faixa') or 'não identificada'} · "
+                 f"Gênero: {metadados.get('genero') or 'não identificado'}\n"
+                 f"Artista do álbum: {metadados.get('artista_album') or 'não identificado'} · "
+                 f"Participações: {metadados.get('participacoes') or 'não identificadas'}\n"
+                 "São sugestões: confira e, se necessário, cancele e use Editar dados.")
+        self.lbl_metadados.setText(texto)
+        self.lbl_metadados.setVisible(bool(metadados))
+
+    def definir_pendente(self, pendente: bool) -> None:
+        self._metadados_pendentes = pendente
+        self.btn_sem.setEnabled(not pendente)
+        self.btn_usar.setEnabled(not pendente and bool(self.escolhida and self.escolhida.caminho))
+        self.btn_sem.setToolTip('Aguarde a identificação dos metadados.' if pendente else '')
+        self.btn_usar.setToolTip('Aguarde a identificação dos metadados.' if pendente else '')
+
+    def atualizar_musica(self, musica: dict) -> None:
+        from ..texto import normalizar
+        consulta = musica.get('consulta_capa') or {}
+        if self._busca_provisoria and (
+                normalizar(self._busca_provisoria[0]) != normalizar(musica.get('artista') or '') or
+                normalizar(self._busca_provisoria[1]) != normalizar(musica.get('titulo') or '')):
+            consulta = dict(consulta)
+            consulta['aviso'] = (str(consulta.get('aviso') or '') +
+                ' A identidade mudou depois da pesquisa; confira a imagem e pesquise novamente se necessário.').strip()
+            musica = dict(musica, consulta_capa=consulta)
+        self.musica = musica
+        self._atualizar_textos()
+        self.definir_pendente(False)
+
     def showEvent(self, evento) -> None:
         super().showEvent(evento)
         try:
@@ -358,7 +386,7 @@ class DialogoCapas(QDialog):
             return
         opcao = self.opcoes[linha]
         self.escolhida = opcao
-        self.btn_usar.setEnabled(bool(opcao.caminho))
+        self.btn_usar.setEnabled(bool(opcao.caminho) and not self._metadados_pendentes)
         pix = _pixmap(opcao.caminho or "", 280)
         if pix is not None:
             self.lbl_imagem.setPixmap(pix)
@@ -395,12 +423,14 @@ class DialogoCapas(QDialog):
             self.lbl_motivo.setText("")
 
     def _usar(self) -> None:
-        if not self.escolhida or not self.escolhida.caminho:
+        if self._metadados_pendentes or not self.escolhida or not self.escolhida.caminho:
             return
         self.recusou = False
         self.accept()
 
     def _sem_capa(self) -> None:
+        if self._metadados_pendentes:
+            return
         self.recusou = True
         self.escolhida = None
         self.accept()
@@ -409,6 +439,8 @@ class DialogoCapas(QDialog):
         from urllib.parse import urlencode
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
+        if self._metadados_pendentes:
+            self._busca_provisoria = (self.musica.get("artista") or "", self.musica.get("titulo") or "")
         termo = " ".join(str(self.musica.get(k) or "") for k in ("artista", "titulo"))
         url = "https://www.google.com/search?" + urlencode({"q": termo.strip() + " capa album single", "tbm": "isch"})
         if not QDesktopServices.openUrl(QUrl(url)):

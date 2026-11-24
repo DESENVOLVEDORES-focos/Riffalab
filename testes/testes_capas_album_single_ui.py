@@ -30,9 +30,7 @@ class CapasUI(unittest.TestCase):
         imagem = origem.copy(0, 0, 320, 320)
         QApplication.clipboard().setImage(imagem)
         with tempfile.TemporaryDirectory() as d:
-            def salvar(_url, dados):
-                destino = Path(d)/'capa.png'; destino.write_bytes(dados); return destino
-            with patch('app.metadata.covers.salvar_cache', side_effect=salvar):
+            with patch('app.config.PASTA_DOWNLOAD_CAPAS', Path(d)):
                 dlg = DialogoCapas(None, CoverResult())
                 dlg._colar_imagem()
                 self.assertEqual(len(dlg.opcoes), 1)
@@ -49,7 +47,7 @@ class CapasUI(unittest.TestCase):
         img = QImage(50, 50, QImage.Format_RGB32); img.fill(0xff00ff00)
         QApplication.clipboard().setImage(img)
         dlg = DialogoCapas(None, CoverResult())
-        with patch.object(QMessageBox,'warning') as aviso, patch('app.metadata.covers.salvar_cache') as salvar:
+        with patch.object(QMessageBox,'warning') as aviso, patch.object(dlg, '_salvar_imagem_colada') as salvar:
             dlg._colar_imagem()
         aviso.assert_called_once(); salvar.assert_not_called()
         self.assertEqual(len(dlg.opcoes),0)

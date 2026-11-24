@@ -15,18 +15,18 @@ from app.sources.ytdlp import FonteYtDlp
 
 
 class FluxoLote(unittest.TestCase):
-    def test_preparar_nao_baixa_audio_e_mantem_opcoes(self):
+    def test_preparar_nao_baixa_audio_nem_busca_api_de_capas(self):
         with tempfile.TemporaryDirectory() as d:
             cfg = Config(Path(d) / 'config.json')
             r = TrackResult('1', 'ytdlp', 'Música', 'Artista')
             meta = TrackMeta(titulo='Música', artista='Artista')
             capa = CoverResult(caminho='capa.jpg', alternativas=[CoverResult(caminho='outra.jpg')])
             with patch.object(pipeline, 'montar_metadados', return_value=meta), \
-                 patch.object(pipeline, 'buscar_capa', return_value=capa), \
+                 patch.object(pipeline, 'buscar_capa', side_effect=AssertionError('buscou capa')), \
                  patch.object(pipeline, 'processar_resultado', side_effect=AssertionError('baixou áudio')):
                 dados = preparacao.preparar_musica(r, cfg)
             self.assertIs(dados['meta'], meta)
-            self.assertEqual(len(dados['capa'].alternativas), 1)
+            self.assertFalse(dados['capa'].ok)
 
     def test_fila_e_sequencial_mesmo_com_config_antiga(self):
         with tempfile.TemporaryDirectory() as d:

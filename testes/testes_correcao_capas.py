@@ -11,23 +11,14 @@ from app.models import CoverResult, TrackMeta
 
 
 class CorrecaoCapas(unittest.TestCase):
-    def test_separa_artista_e_titulo_quando_artista_e_canal(self):
+    def test_busca_legada_nao_consulta_api_de_capas(self):
         with tempfile.TemporaryDirectory() as d:
             cfg = Config(Path(d) / 'config.json')
-            meta = TrackMeta(titulo='Metallica - Nothing Else Matters', artista='MetallicaVEVO', album='Disco')
-            with patch.object(pipeline.covers, 'encontrar_capa', return_value=CoverResult()) as buscar:
-                pipeline.buscar_capa(meta, cfg)
-            self.assertEqual(buscar.call_args.args[:3], ('Nothing Else Matters', 'Metallica', 'Disco'))
-            self.assertEqual(meta.titulo, 'Metallica - Nothing Else Matters')
-            self.assertEqual(meta.artista, 'MetallicaVEVO')
-
-    def test_nao_separa_titulo_quando_artista_ja_parece_valido(self):
-        with tempfile.TemporaryDirectory() as d:
-            cfg = Config(Path(d) / 'config.json')
-            meta = TrackMeta(titulo='Música - Ao vivo', artista='Metallica')
-            with patch.object(pipeline.covers, 'encontrar_capa', return_value=CoverResult()) as buscar:
-                pipeline.buscar_capa(meta, cfg)
-            self.assertEqual(buscar.call_args.args[:2], ('Música - Ao vivo', 'Metallica'))
+            meta = TrackMeta(titulo='Metallica - Nothing Else Matters', artista='MetallicaVEVO')
+            with patch.object(pipeline.covers, 'encontrar_capa', side_effect=AssertionError('API de capa')):
+                capa = pipeline.buscar_capa(meta, cfg)
+            self.assertFalse(capa.ok)
+            self.assertIn('manualmente', capa.observacao)
 
     def test_contracapa_na_edicao_nao_esconde_frontal_do_grupo(self):
         def resultado(release_id='', release_group=''):

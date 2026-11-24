@@ -17,6 +17,15 @@ CAMPOS_REMOVIVEIS = ('album', 'artista_album', 'genero', 'ano', 'faixa')
 
 def aplicar_edicao(meta, edicao):
     edicao = edicao or {}
+    if 'album' in edicao:
+        from .texto import normalizar
+        if normalizar(str(edicao['album'] or '')) != normalizar(meta.album or ''):
+            # Dados de posição e edição anterior não pertencem necessariamente
+            # ao álbum corrigido. O que o usuário digitar abaixo terá prioridade.
+            meta.faixa = meta.total_faixas = meta.disco = meta.ano = None
+            meta.data_lancamento = ''
+            meta.genero = ''
+            meta.artista_album = ''
     for chave in CAMPOS_EDITAVEIS:
         if chave not in edicao:
             continue
@@ -99,7 +108,7 @@ def identidade_para_capa(meta, ident, config, edicao=None):
 
 def preparar_musica(resultado: TrackResult, config: Config, progresso=None,
                      edicao=None, sem_capa: bool = False) -> Dict[str, Any]:
-    """Identifica a faixa e busca capas; não chama a fonte nem baixa áudio.
+    """Identifica a faixa para revisão manual; não baixa áudio nem busca capas.
 
     A identificação por IA é opcional. A escolha efetiva da capa é sempre
     responsabilidade da interface, antes de passar o resultado para o pipeline.
@@ -118,15 +127,8 @@ def preparar_musica(resultado: TrackResult, config: Config, progresso=None,
         from .models import CoverResult
         capa = CoverResult(observacao='Usuário escolheu não usar capa no lote')
     else:
-        consulta_capa, ident_capa = identidade_para_capa(meta, ident, config, edicao)
-        # Uma consulta por item, sem compartilhar ou alterar os metadados.
-        meta_consulta = replace(meta, titulo=consulta_capa['titulo'], artista=consulta_capa['artista'])
-        from .texto import normalizar
-        if (normalizar(consulta_capa['titulo']) != normalizar(meta.titulo)
-                or normalizar(consulta_capa['artista']) != normalizar(meta.artista)):
-            meta_consulta = replace(meta_consulta, album='', ano=None)
-        capa = pipeline.buscar_capa(meta_consulta, config,
-            resultado.thumb_url or resultado.extra.get('thumb', ''), progresso, ident=ident_capa,
-            interpretar_canal=False, incluir_albuns_para_revisao=True)
+        consulta_capa, _ = identidade_para_capa(meta, ident, config, edicao)
+        from .models import CoverResult
+        capa = CoverResult(observacao='Pesquise no Google ou escolha uma imagem salva.')
     return {'meta': meta, 'ident': ident, 'capa': capa, 'apagar_tags': apagar_tags,
             'consulta_capa': consulta_capa}

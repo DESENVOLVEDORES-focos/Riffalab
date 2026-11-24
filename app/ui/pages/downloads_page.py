@@ -477,7 +477,7 @@ class DownloadsPage(QWidget):
             return
         linha = self._a_preparar.pop(0)
         r = linha.pedido['resultado']
-        self.resumo.setText(f'Buscando metadados e capas: {r.artista} — {r.titulo}…')
+        self.resumo.setText(f'Preparando metadados: {r.artista} — {r.titulo}…')
         EXECUTOR_GLOBAL.rodar(
             preparar_musica, r, self.config, edicao=linha.pedido.get('edicao'),
             sem_capa=self._sem_capa_lote,
@@ -498,7 +498,12 @@ class DownloadsPage(QWidget):
                                             'artista': consulta.get('artista', meta.artista),
                                             'consulta_capa': consulta,
                                             'album': meta.album, 'ano': meta.ano,
-                                            'fontes_capa': self.config.get('fontes_capa')})
+                                            'metadados': {'titulo': meta.titulo, 'artista': meta.artista,
+                                                          'album': meta.album, 'ano': meta.ano,
+                                                          'faixa': meta.faixa, 'genero': meta.genero,
+                                                          'artista_album': meta.artista_album,
+                                                          'participacoes': ', '.join(meta.artistas_participantes)},
+                                            'abrir_google_automaticamente': True})
         if dialogo.exec() != QDialog.Accepted:
             self._cancelar_preparacao()
             return

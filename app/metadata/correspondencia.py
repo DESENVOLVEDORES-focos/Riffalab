@@ -62,6 +62,22 @@ def versoes(texto: str) -> set[str]:
         ("acustico", r"\b(?:acoustic|acustico)\b")) if re.search(padrao, texto)}
 
 
+def identidade_metadados(titulo: str, artista: str, candidato: Dict[str, Any]) -> bool:
+    """Exige nomes completos para não misturar tags de artistas/faixas parecidos."""
+    import difflib
+    import re
+    def titulo_base(texto):
+        texto = re.sub(r"\s*(?:[\(\[]\s*|[-–—]\s*)(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?\s*[\)\]]?\s*$", "", texto or "", flags=re.I)
+        return normalizar(texto)
+    def semelhante(a, b, minimo):
+        return bool(a and b and (a == b or difflib.SequenceMatcher(None, a, b).ratio() >= minimo))
+    if not semelhante(titulo_base(titulo), titulo_base(candidato.get('titulo')), .92):
+        return False
+    if versoes(titulo) != versoes(candidato.get('titulo')):
+        return False
+    return not artista or semelhante(normalizar(artista), normalizar(candidato.get('artista')), .90)
+
+
 def pontuar(titulo: str, artista: str = "", album: str = "",
             ano: Optional[int] = None, isrc: str = "", mbid: str = "",
             cand: Optional[Dict[str, Any]] = None,

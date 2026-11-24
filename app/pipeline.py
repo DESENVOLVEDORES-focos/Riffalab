@@ -49,6 +49,15 @@ def montar_metadados(resultado: TrackResult, config: Config,
     extra = extra or {}
     titulo = extra.get("titulo") or resultado.titulo
     artista = extra.get("artista") or resultado.artista
+    # Quando o vídeo repete o artista no título, separe apenas se os nomes
+    # forem iguais; assim não confundimos um hífen legítimo no nome da faixa.
+    from .texto import normalizar
+    prefixo, faixa = separar_artista_titulo(titulo or "")
+    if (prefixo and faixa and artista and normalizar(prefixo) == normalizar(artista)
+            and not (extra.get("titulo") or extra.get("artista"))):
+        titulo = limpar_titulo(faixa)
+    if titulo and not extra.get("titulo"):
+        titulo = limpar_titulo(titulo)
     # "DisneyMusicVEVO" como artista gera arquivo e capa errados: quando o
     # título traz "Artista - Título" e o artista é um canal, fica o lado esquerdo
     if artista and parece_canal(artista) and titulo:
@@ -143,34 +152,10 @@ def montar_metadados(resultado: TrackResult, config: Config,
 def buscar_capa(meta: TrackMeta, config: Config, thumb_extra: str = "",
                 progresso: Progresso = None, ident=None, interpretar_canal: bool = True,
                 incluir_albuns_para_revisao: bool = False):
-    _emitir(progresso, 60, "procurando a capa…")
-    # canal não é artista: "Disney", "FulanoVEVO", "Canal Official" etc. fazem a
-    # busca pegar a capa de OUTRA música com o mesmo nome. Nesses casos tenta o
-    # "Artista - Título" que costuma vir no nome do vídeo.
-    artista_capa = meta.artista or ""
-    titulo_capa = meta.titulo or ""
-    if interpretar_canal and artista_capa and parece_canal(artista_capa):
-        candidato, titulo_separado = separar_artista_titulo(titulo_capa)
-        if candidato and titulo_separado and not parece_canal(candidato):
-            # Usar a parte da música na consulta: pesquisar o título completo
-            # com o artista novamente pode excluir o single dos catálogos.
-            # Não altera o título nem o artista salvos nos metadados.
-            artista_capa = candidato
-            titulo_capa = titulo_separado
-    try:
-        capa = covers.encontrar_capa(
-            titulo_capa, artista_capa, meta.album or "", meta.ano,
-            fontes=config.get("fontes_capa"),
-            minimo_lado=int(config.get("tamanho_minimo_capa") or 300),
-            thumb_extra=thumb_extra,
-            identificacao=ident,
-            usar_miniatura=bool(config.get("usar_thumb_como_capa", False)),
-            incluir_albuns_para_revisao=incluir_albuns_para_revisao,
-        )
-    except Exception as exc:                                     # noqa: BLE001
-        from .models import CoverResult
-        return CoverResult(observacao=f"falha ao buscar capa: {exc}")
-    return capa
+    # Não consultar APIs de capa, mesmo para chamadas legadas sem preparação.
+    from .models import CoverResult
+    _emitir(progresso, 60, "capa escolhida manualmente na preparação")
+    return CoverResult(observacao="A capa deve ser escolhida manualmente antes do download.")
 
 
 def processar_resultado(
@@ -324,7 +309,7 @@ def processar_resultado(
             # Num MP3 copiado, tags antigas de outra edição não podem preencher
             # silenciosamente campos que a preparação deixou desconhecidos.
             if preparacao is not None:
-                for campo in ('album', 'ano', 'faixa', 'genero', 'artista_album', 'duracao_s'):
+                for campo in ('album', 'ano', 'faixa', 'disco', 'genero', 'artista_album', 'duracao_s'):
                     if not getattr(meta, campo, None) and campo not in apagar:
                         apagar.append(campo)
             resultado_tags = tagging.gravar(mp3_temp, meta, id3v1=bool(config.get("gravar_id3v1", True)),

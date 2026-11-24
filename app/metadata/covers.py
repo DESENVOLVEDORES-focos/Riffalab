@@ -179,8 +179,9 @@ def metadados_completos(titulo: str, artista: str = "", album: str = "",
     except Exception:
         it = None
     if it:
-        from .correspondencia import pontuar
-        if not pontuar(titulo, artista, album, cand=it).aprovado:
+        from .correspondencia import pontuar, identidade_metadados
+        if (not identidade_metadados(titulo, artista, it)
+                or not pontuar(titulo, artista, album, cand=it).aprovado):
             it = None
     if it:
         dados["fontes"].append("itunes")
@@ -201,8 +202,9 @@ def metadados_completos(titulo: str, artista: str = "", album: str = "",
         try:
             for grav in musicbrainz.buscar_gravacao(titulo, artista, album, limite=3):
                 from ..texto import similaridade
-                from .correspondencia import pontuar
-                if not pontuar(titulo, artista, cand=grav).aprovado:
+                from .correspondencia import pontuar, identidade_metadados
+                if (not identidade_metadados(titulo, artista, grav)
+                        or not pontuar(titulo, artista, cand=grav).aprovado):
                     continue
                 if dados.get("album") and similaridade(dados["album"], grav.get("album") or "") < .80:
                     continue

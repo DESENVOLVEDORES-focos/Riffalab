@@ -22,20 +22,13 @@ class IdentidadeCapaLote(unittest.TestCase):
                    TrackResult('3', 'ytdlp', 'Nome do vídeo 3', 'Canal 3')]
         identidades = {r.uid: Identificacao(ok=True, confianca=.95,
                             titulo=f'Título IA {r.uid}', artista=f'Artista IA {r.uid}') for r in musicas}
-        consultas = []
-        def capa(titulo, artista, album, ano, **kwargs):
-            consultas.append((titulo, artista, album, ano, kwargs.get('identificacao')))
-            return CoverResult(observacao='nenhuma encontrada no teste')
         with patch.object(preparacao.identificador, 'identificar', side_effect=lambda r,c,p: identidades[r.uid]), \
              patch.object(pipeline.covers, 'metadados_completos', return_value={}), \
-             patch.object(pipeline.covers, 'encontrar_capa', side_effect=capa):
+             patch.object(pipeline.covers, 'encontrar_capa', side_effect=AssertionError('API de capa')):
             preps = [preparacao.preparar_musica(r, self.config) for r in musicas]
-        self.assertEqual([(c[0], c[1]) for c in consultas],
-                         [(f'Título IA {i}', f'Artista IA {i}') for i in (1,2,3)])
         for i, prep in enumerate(preps, 1):
             self.assertEqual(prep['consulta_capa']['origem'], 'IA')
             self.assertEqual(prep['consulta_capa']['titulo'], f'Título IA {i}')
-            self.assertIs(consultas[i-1][4], identidades[str(i)])
             self.assertEqual(prep['meta'].titulo, f'Nome do vídeo {i}')  # nome do arquivo não é alterado
             self.assertIn('difere dos metadados', prep['consulta_capa']['aviso'])
 
@@ -46,8 +39,8 @@ class IdentidadeCapaLote(unittest.TestCase):
              patch.object(pipeline.covers, 'metadados_completos', return_value={}), \
              patch.object(pipeline.covers, 'encontrar_capa', return_value=CoverResult()) as buscar:
             prep = preparacao.preparar_musica(r, self.config, edicao={'titulo':'Correção', 'artista':'Meu Artista'})
-        self.assertEqual(buscar.call_args.args[:2], ('Correção', 'Meu Artista'))
-        self.assertIsNone(buscar.call_args.kwargs['identificacao'])
+        buscar.assert_not_called()
+        self.assertEqual((prep['consulta_capa']['titulo'], prep['consulta_capa']['artista']), ('Correção', 'Meu Artista'))
         self.assertEqual(prep['consulta_capa']['origem'], 'dados revisados')
 
     def test_ia_incerta_invalida_e_desativada_nao_e_usada_sem_aviso(self):
@@ -75,7 +68,8 @@ class IdentidadeCapaLote(unittest.TestCase):
         with patch.object(pipeline.covers, 'metadados_completos', return_value={}), \
              patch.object(pipeline.covers, 'encontrar_capa', return_value=CoverResult()) as buscar:
             prep = preparacao.preparar_musica(r, self.config)
-        self.assertEqual(buscar.call_args.args[:2], (prep['consulta_capa']['titulo'], prep['consulta_capa']['artista']))
+        buscar.assert_not_called()
+        self.assertEqual((prep['consulta_capa']['titulo'], prep['consulta_capa']['artista']), ('Nothing Else Matters', 'Metallica'))
 
     def test_persistencia_da_consulta_e_compatibilidade_antiga(self):
         r = TrackResult('1','ytdlp','A','B')

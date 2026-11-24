@@ -37,7 +37,7 @@ def gravar(caminho: str | Path, meta: TrackMeta, id3v1: bool = True,
     # Campos vazios preservam tags originais, exceto se o usuário pediu
     # explicitamente para limpar um campo no editor.
     frames = {'album': 'TALB', 'genero': 'TCON', 'ano': 'TDRC',
-              'faixa': 'TRCK', 'artista_album': 'TPE2', 'duracao_s': 'TLEN'}
+              'faixa': 'TRCK', 'disco': 'TPOS', 'artista_album': 'TPE2', 'duracao_s': 'TLEN'}
     for campo in apagar_campos or ():
         if campo in frames:
             tags.delall(frames[campo])

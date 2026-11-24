@@ -164,22 +164,13 @@ class SettingsPage(QWidget):
             self.campo_pasta_baixados.setText(pasta)
 
     def _cartao_fontes_capas_visivel(self) -> None:
-        c = Cartao("Fontes de capa")
+        c = Cartao("Capas escolhidas no Google")
         self.col.addWidget(c)
-        texto = QLabel("A busca usa APIs de catálogos. Desmarque as fontes que não deseja consultar.")
+        texto = QLabel("O RiffLab não consulta mais APIs de capas. Pesquise no Google e escolha "
+                       "uma imagem ou cole a imagem copiada. A pasta Download de Capas fica na raiz do programa.")
         texto.setWordWrap(True)
         c.layout_.addWidget(texto)
-        linha = QHBoxLayout()
-        self.fontes_capas_visiveis = {}
-        ativas = self.config.get("fontes_capa") or []
-        for chave, nome in (("coverartarchive", "Cover Art Archive"),
-                            ("itunes", "Apple / iTunes"), ("deezer", "Deezer")):
-            chk = QCheckBox(nome)
-            chk.setChecked(chave in ativas)
-            self.fontes_capas_visiveis[chave] = chk
-            linha.addWidget(chk)
-        linha.addStretch(1)
-        c.layout_.addLayout(linha)
+        self.fontes_capas_visiveis = {}  # conserva as preferências antigas sem usá-las
 
     # ============================================================== cookies
     def _cartao_cookies(self) -> None:

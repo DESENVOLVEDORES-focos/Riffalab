@@ -21,7 +21,7 @@ from typing import Any, Dict
 
 APP_NOME = "RiffLab"
 APP_SUB = "pesquisa · qualidade · metadados"
-APP_VERSAO = "0.7.0"
+APP_VERSAO = "0.8.0"
 
 # ------------------------------------------------------------------ caminhos
 def _raiz() -> Path:
@@ -34,6 +34,7 @@ def _raiz() -> Path:
 RAIZ = _raiz()
 PASTA_DOWNLOADS = RAIZ / "downloads"
 PASTA_CAPAS = RAIZ / "capas"
+PASTA_DOWNLOAD_CAPAS = RAIZ / "Download de Capas"
 PASTA_TEMP = RAIZ / "temp"
 PASTA_FERRAMENTAS = RAIZ / "ferramentas"
 PASTA_CACHE_CAPAS = PASTA_CAPAS / "cache"

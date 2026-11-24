@@ -59,7 +59,7 @@ class DialogoConfirmar(QDialog):
         titulo.setStyleSheet("font-size: 17px; font-weight: 800;")
         fora.addWidget(titulo)
         explicacao = QLabel(
-            "O RiffLab vai baixar o áudio, identificar a música, buscar a capa e "
+            "O RiffLab vai baixar o áudio, identificar a música, usar a capa escolhida e "
             "gravar as tags. Nada é baixado antes da sua confirmação.")
         explicacao.setWordWrap(True)
         explicacao.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 12px;")
@@ -185,16 +185,22 @@ class DialogoCapas(QDialog):
             self.lbl_consulta.setWordWrap(True)
             self.lbl_consulta.setStyleSheet(f"color: {PALETA['amarelo']}; font-size: 11.5px;")
             fora.addWidget(self.lbl_consulta)
-        if 'fontes_capa' in self.musica:
-            nomes = {'coverartarchive': 'MusicBrainz / Cover Art Archive',
-                     'itunes': 'Apple / iTunes', 'deezer': 'Deezer'}
-            fontes = self.musica.get('fontes_capa') or []
-            texto_fontes = ', '.join(nomes.get(f, str(f)) for f in fontes) or 'nenhuma'
-            self.lbl_fontes = QLabel('Fontes ativadas: ' + texto_fontes +
-                '. A imagem exibida pode vir de apenas uma delas; as outras podem não ter retornado uma opção.')
-            self.lbl_fontes.setWordWrap(True)
-            self.lbl_fontes.setStyleSheet(f"color: {PALETA['texto_dim']}; font-size: 11px;")
-            fora.addWidget(self.lbl_fontes)
+        metadados = self.musica.get('metadados') or {}
+        if metadados:
+            texto = (f"Dados para o MP3 — {metadados.get('artista') or 'artista não identificado'} — "
+                     f"{metadados.get('titulo') or 'título não identificado'}\n"
+                     f"Álbum: {metadados.get('album') or 'não identificado'} · "
+                     f"Ano: {metadados.get('ano') or 'não identificado'} · "
+                     f"Faixa: {metadados.get('faixa') or 'não identificada'} · "
+                     f"Gênero: {metadados.get('genero') or 'não identificado'}\n"
+                     f"Artista do álbum: {metadados.get('artista_album') or 'não identificado'} · "
+                     f"Participações: {metadados.get('participacoes') or 'não identificadas'}\n"
+                     "São sugestões: confira e, se necessário, cancele e use Editar dados.")
+            self.lbl_metadados = QLabel(texto)
+            self.lbl_metadados.setTextFormat(Qt.PlainText)
+            self.lbl_metadados.setWordWrap(True)
+            fora.addWidget(self.lbl_metadados)
+        self._google_aberto = False
 
         corpo = QHBoxLayout()
         corpo.setSpacing(16)
@@ -228,7 +234,7 @@ class DialogoCapas(QDialog):
         self.lbl_motivo.setStyleSheet(f"color: {PALETA['amarelo']}; font-size: 11.5px;")
         dados.addWidget(self.lbl_motivo)
 
-        rotulo_opcoes = QLabel("OUTRAS OPÇÕES ENCONTRADAS")
+        rotulo_opcoes = QLabel("IMAGENS ESCOLHIDAS")
         rotulo_opcoes.setObjectName("dim")
         rotulo_opcoes.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 10.5px;"
                                     " font-weight: 700; letter-spacing: 1px;")
@@ -248,8 +254,8 @@ class DialogoCapas(QDialog):
         fora.addLayout(corpo, 1)
 
         self.lbl_regra = QLabel(
-            "Álbum e single são indicações do catálogo, não uma garantia de que a edição é a original. Coleção pode ser álbum ou single. "
-            "Confira a música, o artista e a imagem antes de escolher. Imagens locais ou coladas também exigem conferência.")
+            "O Google abre no navegador. Salve a imagem na pasta Download de Capas e clique em "
+            "Escolher imagem salva, ou copie a imagem e clique em Colar. Confira antes de usar.")
         self.lbl_regra.setWordWrap(True)
         self.lbl_regra.setStyleSheet(f"color: {PALETA['texto_fraco']}; font-size: 11px;")
         fora.addWidget(self.lbl_regra)
@@ -277,6 +283,9 @@ class DialogoCapas(QDialog):
         self.btn_arquivo = QPushButton("Escolher imagem salva")
         self.btn_arquivo.clicked.connect(self._escolher_arquivo)
         linha_imagens.addWidget(self.btn_arquivo)
+        self.btn_pasta = QPushButton("Abrir pasta de capas")
+        self.btn_pasta.clicked.connect(self._abrir_pasta_capas)
+        linha_imagens.addWidget(self.btn_pasta)
         linha_imagens.addStretch(1)
         linha_botoes.addStretch(1)
         self.btn_abrir = QPushButton("Ver imagem maior")
@@ -291,8 +300,48 @@ class DialogoCapas(QDialog):
             self.lista.setCurrentRow(0)
             self._selecionar(0)
         else:
-            self.lbl_imagem.setText("Nenhuma capa encontrada")
+            self.lbl_imagem.setText("Escolha uma imagem")
             self.lbl_motivo.setText(capa.observacao or "Escolha uma imagem salva ou continue sem capa.")
+
+    def showEvent(self, evento) -> None:
+        super().showEvent(evento)
+        try:
+            self._pasta_capas()
+        except OSError as exc:
+            QMessageBox.warning(self, 'Pasta de capas', str(exc))
+        if self.musica.get('abrir_google_automaticamente') and not self._google_aberto:
+            self._google_aberto = True
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._pesquisar_google() if self.isVisible() else None)
+
+    def _pasta_capas(self):
+        from ..config import PASTA_DOWNLOAD_CAPAS
+        PASTA_DOWNLOAD_CAPAS.mkdir(parents=True, exist_ok=True)
+        return PASTA_DOWNLOAD_CAPAS
+
+    def _abrir_pasta_capas(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        try:
+            pasta = self._pasta_capas()
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(pasta))):
+                raise OSError('Não foi possível abrir a pasta.')
+        except OSError as exc:
+            QMessageBox.warning(self, 'Pasta de capas', str(exc))
+
+    def _salvar_imagem_colada(self, dados: bytes, hash_imagem: str):
+        # Nunca substituir uma imagem já existente na pasta do usuário.
+        pasta = self._pasta_capas()
+        base = 'capa-colada-' + hash_imagem[:16]
+        for numero in range(10000):
+            caminho = pasta / (base + (f'-{numero}' if numero else '') + '.png')
+            try:
+                with caminho.open('xb') as arquivo:
+                    arquivo.write(dados)
+                return caminho
+            except FileExistsError:
+                continue
+        raise OSError('Não foi possível criar um nome livre para a imagem.')
 
     # ------------------------------------------------------------ internos
     def _preencher_lista(self) -> None:
@@ -367,16 +416,17 @@ class DialogoCapas(QDialog):
         from urllib.parse import urlencode
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
-        termo = " ".join(str(self.musica.get(k) or "") for k in ("artista", "titulo", "album"))
+        termo = " ".join(str(self.musica.get(k) or "") for k in ("artista", "titulo"))
         url = "https://www.google.com/search?" + urlencode({"q": termo.strip() + " capa album single", "tbm": "isch"})
-        QDesktopServices.openUrl(QUrl(url))
+        if not QDesktopServices.openUrl(QUrl(url)):
+            QMessageBox.warning(self, "Pesquisa no Google", "Não foi possível abrir o navegador. "
+                                "Clique em Pesquisar imagens no Google para tentar novamente.")
 
     def _colar_imagem(self) -> None:
         """Adiciona somente a imagem que a pessoa copiou e precisa confirmar."""
         from PySide6.QtCore import QBuffer, QIODevice
         from PySide6.QtWidgets import QApplication
         from ..metadata.capa_validacao import validar
-        from ..metadata.covers import salvar_cache
         imagem = QApplication.clipboard().image()
         try:
             if imagem.isNull():
@@ -395,7 +445,7 @@ class DialogoCapas(QDialog):
             validacao = validar(dados, minimo_lado=300)
             if not validacao.ok:
                 raise ValueError(validacao.motivo)
-            destino = salvar_cache('imagem-colada:' + validacao.hash, dados)
+            destino = self._salvar_imagem_colada(dados, validacao.hash)
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, 'Imagem inválida', str(exc))
             return
@@ -411,8 +461,13 @@ class DialogoCapas(QDialog):
         from PySide6.QtGui import QImageReader
         from ..metadata.capa_validacao import validar
         from ..metadata.covers import salvar_cache
-        caminho, _ = QFileDialog.getOpenFileName(self, "Escolher imagem de capa", "",
-                                                "Imagens JPEG ou PNG (*.jpg *.jpeg *.png)")
+        try:
+            pasta = str(self._pasta_capas())
+        except OSError as exc:
+            QMessageBox.warning(self, "Pasta de capas", str(exc))
+            return
+        caminho, _ = QFileDialog.getOpenFileName(self, "Escolher imagem de capa", pasta,
+                                                "Imagens JPEG, PNG ou WebP (*.jpg *.jpeg *.png *.webp)")
         if not caminho:
             return
         try:
@@ -420,16 +475,27 @@ class DialogoCapas(QDialog):
             if arquivo.stat().st_size > 15 * 1024 * 1024:
                 raise ValueError("Arquivo maior que 15 MB.")
             dados = arquivo.read_bytes()
-            if not (dados.startswith(b"\xff\xd8") or dados.startswith(b"\x89PNG\r\n\x1a\n")):
-                raise ValueError("Escolha uma imagem JPEG ou PNG válida.")
+            webp = dados[:4] == b"RIFF" and dados[8:12] == b"WEBP"
+            if not (dados.startswith(b"\xff\xd8") or dados.startswith(b"\x89PNG\r\n\x1a\n") or webp):
+                raise ValueError("Escolha uma imagem JPEG, PNG ou WebP válida.")
             validacao = validar(dados, minimo_lado=300)
             if not validacao.ok:
                 raise ValueError(validacao.motivo)
             if max(validacao.largura, validacao.altura) > 6000:
                 raise ValueError("Imagem maior que 6000 pixels por lado.")
             leitor = QImageReader(str(arquivo))
-            if leitor.read().isNull():
+            imagem = leitor.read()
+            if imagem.isNull():
                 raise ValueError("Não foi possível abrir a imagem.")
+            if webp:
+                from PySide6.QtCore import QBuffer, QIODevice
+                buffer = QBuffer()
+                if not buffer.open(QIODevice.WriteOnly) or not imagem.save(buffer, "PNG"):
+                    raise ValueError("Não foi possível converter a imagem WebP.")
+                dados = bytes(buffer.data())
+                buffer.close()
+                if len(dados) > 15 * 1024 * 1024:
+                    raise ValueError("Imagem convertida maior que 15 MB.")
             destino = salvar_cache("arquivo-local:" + validacao.hash, dados)
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Imagem inválida", str(exc))

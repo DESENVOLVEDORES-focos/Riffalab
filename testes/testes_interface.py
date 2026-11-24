@@ -244,21 +244,18 @@ class Interface(unittest.TestCase):
                 self.app.processEvents(); time.sleep(.01)
             self.assertEqual(card.resultado.formatos[0].format_id, '140')
 
-    def test_fontes_ativas_de_capa_sao_visiveis_e_busca_manual_inclui_album_e_single(self):
+    def test_busca_manual_inclui_titulo_e_artista(self):
         from app.models import CoverResult
         from app.ui.dialogos import DialogoCapas
         from PySide6.QtGui import QDesktopServices
         musica = {'titulo':'Paradise City', 'artista':'Guns N Roses', 'album':'Appetite',
                   'fontes_capa':['coverartarchive', 'itunes', 'deezer']}
         dialogo = DialogoCapas(self.janela, CoverResult(), musica)
-        self.assertIn('Deezer', dialogo.lbl_fontes.text())
-        self.assertIn('Apple', dialogo.lbl_fontes.text())
-        self.assertIn('Cover Art Archive', dialogo.lbl_fontes.text())
         with patch.object(QDesktopServices, 'openUrl') as abrir:
             dialogo._pesquisar_google()
         url = abrir.call_args.args[0].toString().lower()
         self.assertIn('single', url)
-        self.assertIn('appetite', url)
+        self.assertNotIn('appetite', url)
         self.assertIn('album', url)
         dialogo.deleteLater()
 
@@ -1427,18 +1424,12 @@ class Interface(unittest.TestCase):
             tentar.assert_called_once()
             self.assertNotIn('erro_detalhe', r.extra)
 
-    def test_fontes_capa_salvas_e_desativadas(self):
+    def test_preferencias_antigas_de_capa_sao_preservadas_sem_controles_ativos(self):
         tela = self.janela.pagina_config
-        self.assertIn('deezer', self.cfg.get('fontes_capa'))
-        for chk in tela.fontes_capas_visiveis.values():
-            chk.setChecked(False)
+        fontes = list(self.cfg.get('fontes_capa'))
+        self.assertEqual(tela.fontes_capas_visiveis, {})
         tela.salvar()
-        self.assertEqual(self.cfg.get('fontes_capa'), [])
-        tela.fontes_capas_visiveis['deezer'].setChecked(True)
-        tela.salvar()
-        self.assertEqual(self.cfg.get('fontes_capa'), ['deezer'])
-        from app.config import Config
-        self.assertEqual(Config(self.cfg.caminho).get('fontes_capa'), ['deezer'])
+        self.assertEqual(self.cfg.get('fontes_capa'), fontes)
 
     def test_escolher_capa_alternativa_e_cancelar(self):
         from app.models import CoverResult, TrackMeta, TrackResult

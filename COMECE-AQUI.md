@@ -29,23 +29,7 @@ A conversão de uma origem com perda (como Opus ou AAC) para MP3 pode introduzir
 
 ### Capas: fontes e busca manual
 
-Em Configurações, confira quais fontes de capa estão ativadas. A tela de escolha também mostra as fontes ativadas; o nome junto à imagem indica apenas de qual delas veio aquela opção. Se não encontrar um single, é possível salvar uma imagem adequada no navegador e usar **Escolher imagem salva**, conferindo antes de confirmar. Nenhuma capa de álbum é usada automaticamente como substituta.
-
-### Mais informações sobre capas
-
-Veja **CAPAS-E-FONTES.md** para ativar o Deezer em configurações anteriores, comparar capas e pesquisar no Google Imagens pelo navegador. A imagem salva deve ser conferida e usada apenas quando você tiver direito.
-
-### Aviso de músicas já baixadas
-
-Cada novo MP3 recebe uma marca RiffLab. A pesquisa verifica a pasta de saída e pode verificar outra pasta escolhida, incluindo subpastas. Veja **MUSICAS-JA-BAIXADAS.md** para detalhes e limitações.
-
-### Pesquisa de qualidade
-
-Esta versão verifica os resultados em fila: primeiro busca formatos de cada música exibida e, depois, compara quatro métodos sem iniciar download de áudio. O contador mostra consultas pendentes; resultados ocultos pelo filtro são verificados quando exibidos. As consultas podem falhar ou demorar. Veja **QUATRO-METODOS.md** para entender os resultados, instalação da biblioteca opcional e limitações.
-
-### Detalhes de cada formato
-
-No cartão de pesquisa, use **Comparar formatos** para ver os dados informados de cada opção e escolher uma delas. Veja **COMPARAR-FORMATOS.md**.
+A janela de capas não abre o navegador sozinha. Clique em **Pesquisar imagens no Google** quando quiser, copie a imagem no navegador e use **Colar imagem copiada**. Confira a imagem e os direitos de uso antes de confirmar. Veja **CAPAS-MANUAIS.md**; orientações de capas de versões anteriores são históricas.
 
 ### Visualizar MP3 e capas gravadas
 
@@ -55,4 +39,4 @@ No menu **Ver MP3 e capas**, confira as imagens ID3 embutidas e as tags dos MP3s
 
 Depois de preparar cada música em **Downloads**, confira o resumo e use **Editar dados** para corrigir título, artista principal, participações, álbum, gênero, ano, número da faixa e artista do álbum. O artista principal define a pasta e o título define o arquivo: `Artista/Título.mp3` no modelo padrão. Caracteres proibidos no Windows são substituídos; arquivos diferentes de mesmo nome recebem outro número; arquivos idênticos podem ser reaproveitados. Um modelo de organização personalizado continua valendo.
 
-A IA (se ativada) e os catálogos podem falhar ou estar errados; não existe garantia de obter todos os campos. Confira inclusive o artista do álbum, que pode ter sido preenchido com o artista principal quando o catálogo não informou outro. Participações são gravadas junto ao artista (TPE1). A duração final é medida no MP3 após a conversão, não adivinhada pela IA. Em **Ver MP3 e capas**, é possível conferir os dados e a duração do arquivo gerado em modo somente leitura. Nada disso renomeia nem modifica MP3s antigos.
+A IA (se ativada) e os catálogos podem falhar ou estar errados; não existe garantia de obter todos os campos. Confira inclusive o artista do álbum; quando o catálogo não o informa, o campo pode ficar vazio. Participações são gravadas junto ao artista (TPE1). A duração final é medida no MP3 após a conversão, não adivinhada pela IA. Em **Ver MP3 e capas**, é possível conferir os dados e a duração do arquivo gerado em modo somente leitura. Nada disso renomeia nem modifica MP3s antigos.

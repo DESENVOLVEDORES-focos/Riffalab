@@ -36,7 +36,7 @@ class GoogleManual(unittest.TestCase):
                          ('November Rain', "Guns N' Roses"))
         self.assertFalse(dados['capa'].ok)
 
-    def test_ao_abrir_pesquisa_google_apenas_uma_vez_e_cria_pasta(self):
+    def test_ao_abrir_nao_pesquisa_ate_apertar_botao(self):
         pasta = self.base/'Download de Capas'
         musica = {'artista':"Guns N' Roses", 'titulo':'November Rain', 'album':'Possível álbum incorreto',
                   'abrir_google_automaticamente':True, 'metadados':{'album':'Álbum sugerido', 'faixa':10}}
@@ -44,7 +44,10 @@ class GoogleManual(unittest.TestCase):
              patch.object(QDesktopServices, 'openUrl', return_value=True) as abrir:
             dlg = DialogoCapas(None, CoverResult(), musica)
             dlg.show(); self.app.processEvents()
+            self.assertFalse(hasattr(dlg, 'btn_arquivo'))
             self.assertTrue(pasta.is_dir())
+            abrir.assert_not_called()
+            dlg.btn_google.click()
             self.assertEqual(abrir.call_count, 1)
             url = abrir.call_args.args[0].toString()
             q = parse_qs(urlparse(url).query)['q'][0]
@@ -97,7 +100,10 @@ class GoogleManual(unittest.TestCase):
         r = TrackResult('id', 'ytdlp', "Guns N' Roses - November Rain (Official Music Video)", "Guns N' Roses")
         item = {'trackName':'November Rain', 'artistName':"Guns N' Roses", 'collectionName':'Use Your Illusion I',
                 'trackNumber':10, 'trackCount':16, 'primaryGenreName':'Rock', 'releaseDate':'1991-09-17'}
-        with patch.object(itunes, 'buscar', return_value=[item]), patch.object(musicbrainz, 'buscar_gravacao', return_value=[]):
+        confirmado = {'titulo':'November Rain', 'artista':"Guns N' Roses", 'album':'Use Your Illusion I',
+                      'ano':1991, 'faixa':10, 'fonte':'musicbrainz'}
+        with patch.object(itunes, 'buscar', return_value=[item]), \
+             patch('app.metadata.album_original.encontrar', return_value=confirmado):
             meta = pipeline.montar_metadados(r, self.cfg)
         self.assertEqual((meta.titulo,meta.artista,meta.album,meta.faixa),
                          ('November Rain',"Guns N' Roses",'Use Your Illusion I',10))

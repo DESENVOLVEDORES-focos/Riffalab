@@ -504,8 +504,7 @@ class DownloadsPage(QWidget):
                                                           'album': meta.album, 'ano': meta.ano,
                                                           'faixa': meta.faixa, 'genero': meta.genero,
                                                           'artista_album': meta.artista_album,
-                                                          'participacoes': ', '.join(meta.artistas_participantes)},
-                                            'abrir_google_automaticamente': True})
+                                                          'participacoes': ', '.join(meta.artistas_participantes)}})
         if dialogo.exec() != QDialog.Accepted:
             self._cancelar_preparacao()
             return

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from . import audio_probe, convert, organizer, sources, tagging, arquivos_baixados
-from .texto import artista_do_titulo, limpar_titulo, parece_canal, separar_artista_titulo
+from .texto import artista_do_titulo, limpar_titulo_tags, parece_canal, separar_artista_titulo
 from .ia import identificador
 from .config import Config, PASTA_TEMP
 from .metadata import covers
@@ -55,18 +55,15 @@ def montar_metadados(resultado: TrackResult, config: Config,
     prefixo, faixa = separar_artista_titulo(titulo or "")
     if (prefixo and faixa and artista and normalizar(prefixo) == normalizar(artista)
             and not (extra.get("titulo") or extra.get("artista"))):
-        titulo = limpar_titulo(faixa)
+        titulo = limpar_titulo_tags(faixa)
     if titulo and not extra.get("titulo"):
-        titulo = limpar_titulo(titulo)
+        titulo = limpar_titulo_tags(titulo)
     # "DisneyMusicVEVO" como artista gera arquivo e capa errados: quando o
     # título traz "Artista - Título" e o artista é um canal, fica o lado esquerdo
     if artista and parece_canal(artista) and titulo:
         candidato, resto = artista_do_titulo(titulo)
         if candidato:
-            artista, titulo = candidato, limpar_titulo(resto)
-    album = extra.get("album") or resultado.album
-    ano = extra.get("ano") or resultado.ano
-
+            artista, titulo = candidato, limpar_titulo_tags(resto)
     # Antes de consultar catálogos, conferir se a sugestão da IA se refere à
     # mesma música/versão. Assim a busca pode usar grafia e álbum identificados,
     # sem consultar o álbum de outra faixa por causa de uma alucinação.
@@ -75,19 +72,18 @@ def montar_metadados(resultado: TrackResult, config: Config,
                >= max(0.70, float(config.get('ia_min_confianca') or 0)))
     incertos = set()
     if usar_ia:
-        from .texto import normalizar, similaridade
-        from .metadata.correspondencia import pontuar
+        from .texto import normalizar
+        from .metadata.correspondencia import identidade_metadados
         incertos = {normalizar(str(c)).replace(' ', '_') for c in (ident.campos_incertos or [])}
         artista_consulta = ident.artista if not artista or parece_canal(artista) else artista
         usar_ia = ('titulo' not in incertos and 'artista' not in incertos
-                   and similaridade(titulo, ident.titulo) >= .70
-                   and pontuar(titulo, artista_consulta,
-                               cand={'titulo': ident.titulo, 'artista': ident.artista}).aprovado)
-    titulo_busca = ident.titulo if usar_ia and ident.titulo else titulo
+                   and identidade_metadados(titulo, artista_consulta,
+                           {'titulo': ident.titulo, 'artista': ident.artista}))
+    titulo_busca = limpar_titulo_tags(ident.titulo) if usar_ia and ident.titulo else titulo
     artista_busca = ident.artista if usar_ia and ident.artista else artista
-    album_busca = (ident.album if usar_ia and ident.album and 'album' not in incertos else album)
-    ano_busca = (ident.ano if usar_ia and ident.ano and 'ano' not in incertos
-                  and 'album' not in incertos else ano)
+    # Não usar o álbum sugerido como filtro nem tratá-lo como confirmação.
+    # O catálogo procura a gravação e retorna um álbum associado.
+    album_busca, ano_busca = '', None
     dados: Dict[str, Any] = {}
     if config.get("gravar_tags", True):
         _emitir(progresso, 52, "consultando metadados…")
@@ -96,16 +92,18 @@ def montar_metadados(resultado: TrackResult, config: Config,
         except Exception:
             dados = {}
 
+    album_trocado = ('album' in extra and
+                      normalizar(str(extra.get('album') or '')) != normalizar(dados.get('album') or ''))
     meta = TrackMeta(
-        titulo=str(extra.get("titulo") or dados.get("titulo") or titulo or "").strip(),
+        titulo=str(extra.get("titulo") or limpar_titulo_tags(dados.get("titulo") or titulo or "")).strip(),
         artista=str(extra.get("artista") or dados.get("artista") or artista or "").strip(),
-        album=str(extra.get("album") or dados.get("album") or album or "").strip(),
-        ano=extra.get("ano") or dados.get("ano") or ano,
-        faixa=extra.get("faixa") or dados.get("faixa"),
-        total_faixas=dados.get("total_faixas"),
-        disco=dados.get("disco"),
-        genero=str(extra.get("genero") or dados.get("genero") or "").strip(),
-        artista_album=str(dados.get("artista_album") or "").strip(),
+        album=str(extra.get("album") if "album" in extra else dados.get("album") or "").strip(),
+        ano=extra.get("ano") if "ano" in extra else (None if album_trocado else dados.get("ano")),
+        faixa=extra.get("faixa") if "faixa" in extra else (None if album_trocado else dados.get("faixa")),
+        total_faixas=None if album_trocado else dados.get("total_faixas"),
+        disco=None if album_trocado else dados.get("disco"),
+        genero=str((extra.get("genero") if "genero" in extra else "" if album_trocado else dados.get("genero")) or "").strip(),
+        artista_album=str((extra.get("artista_album") if "artista_album" in extra else "" if album_trocado else dados.get("artista_album")) or "").strip(),
         fonte_identificacao="fonte + " + ("+".join(dados.get("fontes") or []) or "vídeo"),
     )
 
@@ -114,38 +112,24 @@ def montar_metadados(resultado: TrackResult, config: Config,
     if usar_ia:
         def certo(chave):
             return chave not in incertos and bool(getattr(ident, chave, None))
-        # Número e total do catálogo anterior não pertencem necessariamente ao
-        # novo álbum sugerido pela IA. Nunca misturar faixas de edições diferentes.
-        if certo('album') and meta.album and normalizar(ident.album) != normalizar(meta.album):
-            meta.faixa = meta.total_faixas = meta.disco = None
-            meta.ano = None
-            meta.artista_album = ''
-        for chave in ('titulo', 'artista', 'album', 'ano', 'genero', 'faixa'):
-            if not certo(chave) or (chave in ('faixa', 'ano') and 'album' in incertos):
-                continue
-            if chave == 'faixa' and (not certo('album') or
-                    normalizar(ident.album) != normalizar(meta.album)):
-                continue
-            # Para a mesma edição, os números e o gênero do catálogo têm
-            # prioridade; a IA preenche os que permanecerem vazios.
-            if chave in ('faixa', 'ano', 'genero') and getattr(meta, chave, None):
-                continue
-            setattr(meta, chave, getattr(ident, chave))
-        if certo('artista_album') and 'album' not in incertos and not meta.artista_album:
-            meta.artista_album = ident.artista_album
+        # Identidade sugerida pode corrigir grafia, mas álbum, número, ano e
+        # gênero não sobrescrevem dados do catálogo nem são inventados pela IA.
+        if not dados.get('fontes'):
+            if 'titulo' not in extra and certo('titulo'):
+                meta.titulo = limpar_titulo_tags(ident.titulo)
+            if 'artista' not in extra and certo('artista'):
+                meta.artista = ident.artista
         for chave in ('artistas_participantes', 'compositores', 'letristas', 'produtores',
                       'gravadora', 'data_lancamento', 'isrc'):
             if not certo(chave):
                 continue
-            if chave == 'data_lancamento' and ('album' in incertos or not meta.ano or
+            if chave == 'data_lancamento' and (not meta.album or not ident.album or
+                    normalizar(ident.album) != normalizar(meta.album) or not meta.ano or
                     str(ident.data_lancamento)[:4] != str(meta.ano)):
                 continue
             setattr(meta, chave, getattr(ident, chave))
         meta.mbid = ident.mbid_gravacao or ident.mbid_release_group
-        meta.fonte_identificacao = "groq" + (" + musicbrainz" if ident.verificado_musicbrainz else "")
-    # TPE2 sem identificação específica usa o intérprete como alternativa.
-    meta.artista_album = meta.artista_album or meta.artista
-
+        meta.fonte_identificacao = "groq" + (" + " + "+".join(dados.get("fontes") or []) if dados.get("fontes") else "")
     return meta
 
 

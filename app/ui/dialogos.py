@@ -200,8 +200,6 @@ class DialogoCapas(QDialog):
             self.lbl_metadados.setTextFormat(Qt.PlainText)
             self.lbl_metadados.setWordWrap(True)
             fora.addWidget(self.lbl_metadados)
-        self._google_aberto = False
-
         corpo = QHBoxLayout()
         corpo.setSpacing(16)
 
@@ -255,8 +253,8 @@ class DialogoCapas(QDialog):
         fora.addLayout(corpo, 1)
 
         self.lbl_regra = QLabel(
-            "O Google abre no navegador. Salve a imagem na pasta Download de Capas e clique em "
-            "Escolher imagem salva, ou copie a imagem e clique em Colar. Confira antes de usar.")
+            "Pesquise no Google quando quiser, copie a imagem e clique em Colar imagem copiada. "
+            "Confira antes de usar.")
         self.lbl_regra.setWordWrap(True)
         self.lbl_regra.setProperty("papel_tema", "fraco")
         self.lbl_regra.setStyleSheet("font-size: 11px;")
@@ -282,9 +280,6 @@ class DialogoCapas(QDialog):
         self.btn_colar.setToolTip("Copie uma imagem no navegador e clique aqui para revisá-la.")
         self.btn_colar.clicked.connect(self._colar_imagem)
         linha_imagens.addWidget(self.btn_colar)
-        self.btn_arquivo = QPushButton("Escolher imagem salva")
-        self.btn_arquivo.clicked.connect(self._escolher_arquivo)
-        linha_imagens.addWidget(self.btn_arquivo)
         self.btn_pasta = QPushButton("Abrir pasta de capas")
         self.btn_pasta.clicked.connect(self._abrir_pasta_capas)
         linha_imagens.addWidget(self.btn_pasta)
@@ -303,7 +298,7 @@ class DialogoCapas(QDialog):
             self._selecionar(0)
         else:
             self.lbl_imagem.setText("Escolha uma imagem")
-            self.lbl_motivo.setText(capa.observacao or "Escolha uma imagem salva ou continue sem capa.")
+            self.lbl_motivo.setText(capa.observacao or "Copie e cole uma imagem, ou continue sem capa.")
 
     def showEvent(self, evento) -> None:
         super().showEvent(evento)
@@ -311,10 +306,6 @@ class DialogoCapas(QDialog):
             self._pasta_capas()
         except OSError as exc:
             QMessageBox.warning(self, 'Pasta de capas', str(exc))
-        if self.musica.get('abrir_google_automaticamente') and not self._google_aberto:
-            self._google_aberto = True
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, lambda: self._pesquisar_google() if self.isVisible() else None)
 
     def _pasta_capas(self):
         from ..config import PASTA_DOWNLOAD_CAPAS

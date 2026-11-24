@@ -1,5 +1,7 @@
 # RiffLab
 
+> **Versão 0.10.0:** pesquise capas no Google somente quando desejar e cole a imagem; confira também as sugestões de metadados. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
+
 > **Versão 0.9.0:** personalize e salve as cores em Configurações. Veja [PERSONALIZAR-CORES.md](PERSONALIZAR-CORES.md).
 
 > **Versão 0.8.0:** as capas são escolhidas manualmente no Google. Consulte [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md); guias de versões antigas sobre buscas automáticas de capa são históricos.
@@ -144,26 +146,15 @@ MP3 → tags → organização.
 
 ### 3.5 Confirmar a capa
 
-Quando a capa é encontrada, aparece a **confirmação da capa** com:
+Em **Downloads**, abra **Escolher capa** ou **Revisar capas selecionadas**. O Google não abre sozinho: clique em **Pesquisar imagens no Google**, copie uma imagem no navegador e use **Colar imagem copiada**. Confira a prévia e escolha **Usar esta capa** ou **Não usar capa**. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
 
-* a imagem em tamanho grande;
-* **álbum, artista, ano, fonte** (Cover Art Archive, Apple Music, Deezer…) e o
-  **grau de correspondência** (0 a 1);
-* a lista de **outras opções** encontradas — clique para comparar e escolher.
-
-Escolhas possíveis: **Usar esta capa**, **Não usar capa** (o MP3 fica sem capa
-e o motivo é registrado) ou fechar (mantém a escolha automática).
-
-![Confirmação da capa](docs/tela-capa.png)
-
-> **Regra de ouro: é melhor ficar sem capa do que com a capa errada.** Se
-> nenhuma opção corresponder ao álbum certo, use “Não usar capa”.
+> **Regra de ouro: é melhor ficar sem capa do que com a capa errada.** Confira a imagem e os direitos de uso.
 
 ### 3.6 Resultado
 
 O arquivo final aparece em `downloads\Artista\Artista - Título.mp3`
 (ou na pasta escolhida em Configurações), com **capa embutida** e
-**título/artista/álbum/ano/faixa/gênero** preenchidos de verdade.
+**título/artista/álbum/ano/faixa/gênero** disponíveis após sua revisão; campos não identificados podem ficar vazios.
 
 ![Downloads](docs/tela-downloads.png)
 
@@ -178,9 +169,8 @@ O arquivo final aparece em `downloads\Artista\Artista - Título.mp3`
 | **Downloads simultâneos** | 1 a 4 — padrão **2** (acima de 4 a plataforma passa a bloquear) |
 | **Manter temporários** | só para diagnóstico; normal é apagar `temp/` ao terminar |
 | **Baixar capa / Incorporar capa** | desliga a busca de capa ou só a gravação no ID3 |
-| **Identificação com IA** | Groq identifica a música e confirma o álbum antes da capa (opcional) |
-| **Miniatura como capa** | último recurso, desligado por padrão (thumbnail não é capa oficial) |
-| **Fontes de capa** | Cover Art Archive (álbum confirmado) → Apple Music → Deezer/Discogs (opcionais) |
+| **Identificação com IA** | Groq sugere a identificação; confira os dados (opcional) |
+| **Capas** | escolha manual, com pesquisa no Google somente ao clicar no botão |
 | **Ocultar shows / ao vivo** | filtro ligado por padrão; nada é descartado, só escondido |
 | **Pedir confirmação antes de processar** | mostra a lista e espera seu OK (etapa 5) |
 | **Pedir confirmação da capa** | você aprova/troca/recusa a capa antes de gravar (etapa 9) |
@@ -252,10 +242,10 @@ conexão** e podem ser escolhidos no campo **Modelo**.
 
 * Recebe título, canal, URL, duração e dados sugeridos pela busca, mas não recebe nem escuta o áudio.
 * Tenta sugerir título, artista, participações, artista do álbum, álbum, ano, gênero, número da faixa e outros créditos. A confiança é informada pela própria IA e não prova que os dados estão corretos.
-* O app tenta conferir álbum e artista no MusicBrainz; isso não confirma necessariamente a gravação nem os demais campos. Campos assinalados como incertos não são usados automaticamente. Dados de IA que não combinam com a música ou versão são descartados.
-* Em Downloads, confira os dados após preparar e use **Editar dados** para corrigir. Se faltar algum campo, preencha manualmente; nenhum serviço garante encontrar todos. Artista do álbum pode usar o artista principal como alternativa quando não houver crédito específico.
+* O app procura uma gravação e um lançamento associado no MusicBrainz; o resultado não garante que a edição ou os demais campos sejam corretos. Campos assinalados como incertos não são usados automaticamente. Dados de IA que não combinam com a música ou versão são descartados.
+* Em Downloads, confira os dados após preparar e use **Editar dados** para corrigir. Se faltar algum campo, preencha manualmente; nenhum serviço garante encontrar todos. Se não houver crédito de artista do álbum, o campo pode ficar vazio.
 * A duração final é medida a partir do MP3 convertido. A IA não baixa nem converte o áudio. Se estiver desligada ou falhar, o app usa os dados disponíveis nos catálogos e na origem.
-* As capas automáticas continuam restritas a candidatos identificados como single; a imagem deve ser revisada. Não há substituição automática pela miniatura do vídeo ou capa de álbum.
+* A escolha da capa é manual: pesquise no Google apenas quando desejar e cole a imagem para revisar.
 
 **Privacidade / segurança**
 
@@ -338,17 +328,7 @@ Se o filtro estiver atrapalhando, desligue em Configurações.
 `QtWebEngine` pode não estar instalado. Use **Abrir página original**. A prévia
 nunca baixa o arquivo: quem baixa é o processamento, depois da sua confirmação.
 
-**A capa veio de outra música — o que faço?** A partir da 0.4.1 o app só aplica
-uma capa quando consegue **provar** que é a mesma música: o título tem que bater
-e, se o artista (ou o álbum) for conhecido, ele também. Sem artista confirmado a
-capa **não** é aplicada — melhor sem capa do que com a capa errada. Para ver o
-que aconteceu com uma música específica, rode o **`TESTAR_CAPA.bat`** (ou
-`python -m app.diagnostico_capa "Christina Vidal" "Take Me Away"`): ele lista os
-candidatos do iTunes e do MusicBrainz com as notas e mostra qual capa foi
-escolhida, de qual álbum e com que confiança. Na aba **Downloads** cada item
-mostra a linha `capa: …` com a fonte, o álbum e o artista da imagem gravada.
-Se a capa continuar errada, ligue a identificação com IA (Groq): com o artista e
-o álbum confirmados, a capa vem do Cover Art Archive do álbum certo.
+**A capa veio de outra música — o que faço?** Na preparação, pesquise a música correta, copie e cole outra imagem e confira a prévia antes de confirmar. As capas não são pesquisadas automaticamente. Este fluxo não altera arquivos antigos.
 
 **E se o áudio da origem for OPUS/AAC?** O aplicativo escolhe um bitrate de
 MP3 estimado a partir da origem. A conversão entre formatos com perda pode causar

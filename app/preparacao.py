@@ -68,7 +68,8 @@ def identidade_para_capa(meta, ident, config, edicao=None):
     confianca = _confianca(getattr(ident, 'confianca', 0)) if ident is not None else 0
     limiar = max(0.70, _confianca(config.get('ia_min_confianca') or 0))
     incertos = {normalizar(str(c)).replace(' ', '_') for c in (getattr(ident, 'campos_incertos', None) or [])}
-    ai_titulo = str(getattr(ident, 'titulo', '') or '').strip()
+    from .texto import limpar_titulo_tags
+    ai_titulo = limpar_titulo_tags(str(getattr(ident, 'titulo', '') or ''))
     ai_artista = str(getattr(ident, 'artista', '') or '').strip()
     identidade_revisada = 'titulo' in edicao and 'artista' in edicao
     if identidade_revisada:
@@ -129,6 +130,6 @@ def preparar_musica(resultado: TrackResult, config: Config, progresso=None,
     else:
         consulta_capa, _ = identidade_para_capa(meta, ident, config, edicao)
         from .models import CoverResult
-        capa = CoverResult(observacao='Pesquise no Google ou escolha uma imagem salva.')
+        capa = CoverResult(observacao='Pesquise no Google quando quiser e cole a imagem copiada.')
     return {'meta': meta, 'ident': ident, 'capa': capa, 'apagar_tags': apagar_tags,
             'consulta_capa': consulta_capa}

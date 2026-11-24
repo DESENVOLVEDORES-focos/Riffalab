@@ -7,6 +7,7 @@ temporárias (5xx, timeout) entram em nova tentativa.
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 import threading
 import time
 import urllib.error
@@ -68,7 +69,8 @@ def _artista(creditos: List[Dict[str, Any]]) -> str:
 
 def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
                     limite: int = 4, somente_single: bool = False,
-                    todos_singles: bool = False, todos_albuns: bool = False) -> List[Dict[str, Any]]:
+                    todos_singles: bool = False, todos_albuns: bool = False,
+                    todos_lancamentos: bool = False) -> List[Dict[str, Any]]:
     """Pesquisa gravações e escolhe, para cada uma, o release mais provável.
 
     Se `album` for informado, releases com nome parecido têm prioridade
@@ -109,6 +111,8 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
             tipo = str((rel.get("release-group") or {}).get("primary-type") or "")
             if somente_single and tipo.lower() != "single":
                 continue
+            if todos_lancamentos and tipo.lower() not in ("album", "single"):
+                continue
             if todos_albuns and tipo.lower() != "album":
                 continue
             nota = 0.0
@@ -126,7 +130,7 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
                 nota += 0.5
             if somente_single and todos_singles and rel.get("id"):
                 singles.append((rel, nota))
-            if todos_albuns and rel.get("id"):
+            if (todos_albuns or todos_lancamentos) and rel.get("id"):
                 albuns.append((rel, nota))
             if nota > melhor_nota:
                 melhor_rel, melhor_nota = rel, nota
@@ -146,7 +150,7 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
                 continue
         confianca = min(1.0, (sim_titulo * 0.55) + (sim_artista * 0.35)
                         + (min(int(rec.get("score") or 0), 100) / 100.0) * 0.10)
-        for melhor_rel, melhor_nota in (albuns if todos_albuns else singles if somente_single and todos_singles else [(melhor_rel, melhor_nota)]):
+        for melhor_rel, melhor_nota in (albuns if todos_albuns or todos_lancamentos else singles if somente_single and todos_singles else [(melhor_rel, melhor_nota)]):
             saida.append({
                 "titulo": nome_rec or titulo,
                 "artista": artista_rec or artista,
@@ -154,6 +158,11 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
                 "album": melhor_rel.get("title") or "",
                 "album_score": round(melhor_nota, 2),
                 "tipo_lancamento": str((melhor_rel.get("release-group") or {}).get("primary-type") or ""),
+                "album_grupo": str((melhor_rel.get("release-group") or {}).get("title") or ""),
+                "tipos_secundarios": list((melhor_rel.get("release-group") or {}).get("secondary-types") or []),
+                "status": str(melhor_rel.get("status") or ""),
+                "data_grupo": str((melhor_rel.get("release-group") or {}).get("first-release-date") or ""),
+                "data_release": str(melhor_rel.get("date") or ""),
                 "release_id": melhor_rel.get("id"),
                 "release_group": (melhor_rel.get("release-group") or {}).get("id"),
                 "ano": int((melhor_rel.get("date") or "0")[:4] or 0) or None,
@@ -170,6 +179,16 @@ def buscar_gravacao(titulo: str, artista: str = "", album: str = "",
         vistos.add(item["release_id"])
         unicos.append(item)
     return unicos
+
+
+@lru_cache(maxsize=512)
+def detalhes_grupo(release_group: str) -> Dict[str, Any]:
+    """Nome, primeira data e tipos do grupo; falhas não são armazenadas."""
+    if not release_group:
+        return {}
+    params = urllib.parse.urlencode({'fmt': 'json'})
+    dados = _get(f"{BASE}/release-group/{urllib.parse.quote(release_group, safe='')}?{params}")
+    return dados if isinstance(dados, dict) else {}
 
 
 def detalhes_release(release_id: str, titulo_faixa: str = "") -> Dict[str, Any]:
@@ -191,9 +210,9 @@ def detalhes_release(release_id: str, titulo_faixa: str = "") -> Dict[str, Any]:
         for i, media in enumerate(midias, start=1):
             for t in media.get("tracks") or []:
                 nome_faixa = normalizar(t.get("title") or "")
-                from .correspondencia import pontuar
-                igual = bool(nome_faixa) and pontuar(
-                    titulo_faixa, 'artista', cand={'titulo': t.get('title') or '', 'artista': 'artista'}).aprovado
+                from .correspondencia import identidade_metadados
+                igual = bool(nome_faixa) and identidade_metadados(
+                    titulo_faixa, 'artista', {'titulo': t.get('title') or '', 'artista': 'artista'})
                 if igual:
                     numero = str(t.get("number") or "")
                     digitos = "".join(ch for ch in numero if ch.isdigit())

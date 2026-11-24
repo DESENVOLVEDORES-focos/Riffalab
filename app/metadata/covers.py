@@ -168,58 +168,54 @@ def _limpar_cache_urls() -> None:
         pass
 
 
+def _genero_canonico(genero: str) -> str:
+    nomes = {'rock':'Rock', 'pop':'Pop', 'hard rock':'Hard Rock',
+             'heavy metal':'Heavy Metal', 'metal':'Metal', 'jazz':'Jazz',
+             'blues':'Blues', 'hip hop':'Hip-Hop', 'r b soul':'R&B/Soul'}
+    genero = str(genero or '').strip()
+    return nomes.get(normalizar(genero), genero)
+
+
 def metadados_completos(titulo: str, artista: str = "", album: str = "",
                          ano: Optional[int] = None) -> Dict[str, Any]:
-    """Cruza iTunes + MusicBrainz para preencher o máximo de metadados."""
-    dados: Dict[str, Any] = {"titulo": titulo, "artista": artista, "album": album,
-                             "ano": ano, "faixa": None, "total_faixas": None,
+    """Procura a gravação e um álbum vinculado; não toma a sugestão como prova."""
+    from ..texto import limpar_titulo_tags, normalizar
+    from . import album_original
+    from .correspondencia import identidade_metadados, pontuar
+    titulo = limpar_titulo_tags(titulo)
+    dados: Dict[str, Any] = {"titulo": titulo, "artista": artista, "album": "",
+                             "ano": None, "faixa": None, "total_faixas": None,
                              "disco": None, "genero": "", "artista_album": "", "fontes": []}
+    original = album_original.encontrar(titulo, artista)
+    if original.get('album'):
+        for chave in ('titulo', 'artista', 'album', 'ano', 'faixa', 'total_faixas', 'disco', 'genero', 'artista_album'):
+            if original.get(chave):
+                dados[chave] = original[chave]
+        dados['fontes'].append('musicbrainz')
     try:
-        it = itunes.melhor_faixa(titulo, artista, album)
-    except Exception:
+        it = itunes.melhor_faixa(titulo, artista, dados['album'])
+    except Exception as exc:
+        from ..logging_setup import registrar_erro
+        registrar_erro('Metadados iTunes', f'{type(exc).__name__}: {exc}')
+        it = None
+    if it and (not identidade_metadados(titulo, artista, it)
+               or not pontuar(titulo, artista, cand=it).aprovado):
         it = None
     if it:
-        from .correspondencia import pontuar, identidade_metadados
-        if (not identidade_metadados(titulo, artista, it)
-                or not pontuar(titulo, artista, album, cand=it).aprovado):
-            it = None
-    if it:
-        dados["fontes"].append("itunes")
-        # Só normalizar a identidade com uma correspondência forte e a mesma versão.
-        from ..texto import similaridade
-        from .correspondencia import pontuar
-        if (titulo and artista and similaridade(titulo, it.get("titulo") or "") >= .90
-                and similaridade(artista, it.get("artista") or "") >= .90
-                and pontuar(titulo, artista, cand=it).aprovado):
-            dados["titulo"] = it.get("titulo") or titulo
-            dados["artista"] = it.get("artista") or artista
-        for chave in ("titulo", "artista", "album", "ano", "faixa", "total_faixas", "disco", "genero", "artista_album"):
-            if not dados.get(chave) and it.get(chave):
-                dados[chave] = it[chave]
-        dados["capa_url"] = it.get("capa_url")
-
-    if not dados.get("album") or not dados.get("faixa") or not dados.get("genero") or not dados.get("artista_album"):
-        try:
-            for grav in musicbrainz.buscar_gravacao(titulo, artista, album, limite=3):
-                from ..texto import similaridade
-                from .correspondencia import pontuar, identidade_metadados
-                if (not identidade_metadados(titulo, artista, grav)
-                        or not pontuar(titulo, artista, cand=grav).aprovado):
-                    continue
-                if dados.get("album") and similaridade(dados["album"], grav.get("album") or "") < .80:
-                    continue
-                det = musicbrainz.detalhes_release(grav.get("release_id", ""), titulo) if grav.get("release_id") else {}
-                if det:
-                    dados["fontes"].append("musicbrainz")
-                    for chave in ("album", "ano", "faixa", "total_faixas", "genero", "artista_album"):
-                        if not dados.get(chave) and det.get(chave):
-                            dados[chave] = det[chave]
-                    break
-        except Exception:
-            pass
-
-    if dados.get("genero") and isinstance(dados["genero"], str):
-        dados["genero"] = dados["genero"].strip()
+        dados['fontes'].append('itunes')
+        dados['titulo'] = limpar_titulo_tags(it.get('titulo') or titulo)
+        dados['artista'] = it.get('artista') or artista
+        # Gênero é do catálogo para a mesma faixa; a IA não o substitui.
+        if it.get('genero'):
+            dados['genero'] = it['genero']
+        # Um número de faixa só pertence à edição correspondente, não a uma
+        # coletânea/remaster com o mesmo nome de música.
+        mesmo_album = (dados['album'] and normalizar(it.get('album') or '') == normalizar(dados['album']))
+        if mesmo_album and it.get('ano') and it.get('ano') == dados['ano']:
+            for chave in ('faixa', 'total_faixas', 'disco', 'artista_album'):
+                if not dados.get(chave) and it.get(chave):
+                    dados[chave] = it[chave]
+    dados['genero'] = _genero_canonico(dados['genero'])
     return dados
 
 

@@ -68,6 +68,44 @@ def limpar_titulo(titulo: str) -> str:
     return s or titulo.strip()
 
 
+def limpar_titulo_tags(titulo: str) -> str:
+    """Remove qualificadores técnicos do fim, sem apagar versões musicais.
+
+    Aplicar apenas a sugestões automáticas, nunca a um título editado pela pessoa.
+    """
+    original = limpar_titulo(titulo or '')
+    s = original
+    tecnicos = {'4k', '8k', 'hd', 'uhd', '1080p', '720p', '2160p', 'remaster',
+                'remastered', 'remasterizado', 'remasterizada', 'remasterizacao',
+                'version', 'versao', 'de', 'do', 'da', 'in', 'em', 'the',
+                'original', 'official', 'oficial', 'music', 'video', 'audio',
+                'videoclipe', 'clipe', 'restored', 'restaurado', 'restaurada',
+                'high', 'quality', 'hq', 'digital', 'digitally', 'edition', 'edicao'}
+    sinais = {'4k', '8k', 'hd', 'uhd', '1080p', '720p', '2160p', 'remaster',
+              'remastered', 'remasterizado', 'remasterizada', 'remasterizacao',
+              'restored', 'restaurado', 'restaurada', 'official', 'oficial'}
+    def tecnico(txt):
+        palavras = normalizar(txt).split()
+        if not palavras or any(w not in tecnicos and not re.fullmatch(r'19\d{2}|20\d{2}', w) for w in palavras):
+            return False
+        return bool(set(palavras) & sinais or
+                    (set(palavras) & {'version','versao'} and any(re.fullmatch(r'19\d{2}|20\d{2}', w) for w in palavras)))
+    # Grupos finais como (2011 Remaster), [4K Remastered], (Versão 2022).
+    while True:
+        m = re.search(r'\s*[\(\[]([^()\[\]]+)[\)\]]\s*$', s)
+        if not m or not tecnico(m.group(1)) or not s[:m.start()].strip():
+            break
+        s = s[:m.start()].strip(' -–—|')
+    # Também aceitar sufixos sem parênteses, mas nunca remover o título inteiro.
+    palavras = list(re.finditer(r'\S+', s))
+    for m in palavras[1:]:
+        candidato = s[m.start():].strip(' -–—|')
+        if tecnico(candidato):
+            s = s[:m.start()].strip(' -–—|')
+            break
+    return s or original
+
+
 def separar_artista_titulo(nome: str) -> tuple[str, str]:
     """Tenta dividir 'Artista - Título' (padrão comum de vídeos)."""
     if not nome:

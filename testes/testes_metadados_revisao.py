@@ -59,24 +59,24 @@ class Metadados(unittest.TestCase):
         self.assertEqual(identificador._confianca(float('inf')), 0)
         self.assertEqual(identificador._confianca(.9), .9)
 
-    def test_album_novo_nao_herda_numero_total_de_outro_album(self):
+    def test_album_da_ia_nao_sobrescreve_album_do_catalogo(self):
         ident = Identificacao(ok=True, confianca=.95, titulo='Canção', artista='Pessoa',
                               album='Outro disco', faixa=2, artista_album='Pessoa e Convidados')
         with patch.object(pipeline.covers, 'metadados_completos', return_value={
                 'album':'Disco anterior', 'faixa':9, 'total_faixas':18, 'disco':2, 'ano':2001,
                 'artista_album':'Pessoa'}):
             meta = pipeline.montar_metadados(self.r, self.cfg, ident=ident)
-        self.assertEqual((meta.album, meta.faixa, meta.total_faixas, meta.disco), ('Outro disco',2,None,None))
-        self.assertEqual(meta.artista_album, 'Pessoa e Convidados')
-        self.assertIsNone(meta.ano)
+        self.assertEqual((meta.album, meta.faixa, meta.total_faixas, meta.disco), ('Disco anterior',9,18,2))
+        self.assertEqual(meta.artista_album, 'Pessoa')
+        self.assertEqual(meta.ano, 2001)
 
-    def test_busca_catalogo_com_album_ia_e_prefere_faixa_do_catalogo(self):
+    def test_busca_catalogo_independente_da_ia_e_prefere_faixa_do_catalogo(self):
         ident = Identificacao(ok=True, confianca=.95, titulo='Canção', artista='Pessoa',
                               album='Disco', ano=2002, faixa=9, genero='Pop', artista_album='Errado')
         with patch.object(pipeline.covers, 'metadados_completos', return_value={
                 'album':'Disco','faixa':3,'ano':2001,'genero':'Rock','artista_album':'Pessoa'}) as buscar:
             meta = pipeline.montar_metadados(self.r,self.cfg,ident=ident)
-        self.assertEqual(buscar.call_args.args, ('Canção','Pessoa','Disco',2002))
+        self.assertEqual(buscar.call_args.args, ('Canção','Pessoa','',None))
         self.assertEqual((meta.album,meta.faixa,meta.ano,meta.genero), ('Disco',3,2001,'Rock'))
         self.assertEqual(meta.artista_album, 'Pessoa')
 
@@ -89,7 +89,7 @@ class Metadados(unittest.TestCase):
         self.assertEqual((meta.titulo, meta.artista), ('Canção','Pessoa'))
         self.assertEqual((meta.album,meta.genero,meta.ano,meta.faixa), ('','',None,None))
         self.assertEqual(meta.artistas_participantes, [])
-        self.assertEqual(meta.artista_album, 'Pessoa')  # alternativa informada no guia
+        self.assertEqual(meta.artista_album, '')  # sem prova não inferir o crédito do álbum
 
     def test_faixa_musicbrainz_nao_confunde_versao(self):
         dados = {'title':'Disco', 'media':[{'position':1, 'track-count':2, 'tracks':[
@@ -100,8 +100,7 @@ class Metadados(unittest.TestCase):
 
     def test_musicbrainz_nao_confirma_album_de_artista_diferente(self):
         ident = Identificacao(ok=True, titulo='Canção', artista='Pessoa', album='Disco')
-        with patch.object(musicbrainz, 'buscar_release_group', return_value=[
-                {'album':'Disco', 'artista':'Alguém completamente diferente', 'mbid':'abc'}]):
+        with patch('app.metadata.album_original.encontrar', return_value={}):
             identificador._conferir_musicbrainz(ident)
         self.assertFalse(ident.verificado_musicbrainz)
         self.assertIn('album', ident.campos_incertos)
@@ -112,7 +111,7 @@ class Metadados(unittest.TestCase):
         with patch.object(itunes, 'melhor_faixa', return_value=item), \
              patch.object(musicbrainz, 'buscar_gravacao', return_value=[]):
             dados = covers.metadados_completos('cancao', 'pessoa')
-        self.assertEqual((dados['titulo'],dados['artista'],dados['artista_album']), ('Canção','Pessoa','Pessoa e Banda'))
+        self.assertEqual((dados['titulo'],dados['artista'],dados['artista_album']), ('Canção','Pessoa',''))
         with patch.object(itunes, 'melhor_faixa', return_value={**item, 'titulo':'Canção (Live)'}), \
              patch.object(musicbrainz, 'buscar_gravacao', return_value=[]):
             dados = covers.metadados_completos('Canção', 'Pessoa')

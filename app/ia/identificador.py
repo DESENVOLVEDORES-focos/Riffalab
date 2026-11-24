@@ -12,8 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from ..config import Config
 from ..models import Identificacao, TrackResult
-from ..metadata import musicbrainz
-from ..texto import normalizar, similaridade
+from ..texto import normalizar
 from . import cliente_groq
 
 SISTEMA = (
@@ -41,7 +40,18 @@ SISTEMA = (
     "7. Liste em 'campos_incertos' o nome dos campos que você preencheu com menos "
     "de 80% de certeza.\n"
     "8. 'ano' e 'data_lancamento' se referem ao lançamento ORIGINAL da gravação.\n"
-    "9. Responda SOMENTE com o JSON do schema, sem comentários e sem cercas de código."
+    "9. Nos oito campos (título, artista principal, participações, álbum, gênero, ano, "
+    "número da faixa e artista do álbum), use somente informações da gravação correta. "
+    "Em título, escreva apenas o nome da música: não adicione 4K, HD, remasterizado, "
+    "ano de remasterização, versão do vídeo, Official Video ou propaganda. Não confunda "
+    "remasterização do vídeo com mudança de música. Preserve Live, Remix, Acoustic, "
+    "Cover ou Featuring quando realmente identificarem uma gravação diferente.\n"
+    "10. Escreva o nome oficial do álbum de origem, sem anexar remaster, deluxe, ano "
+    "ou coletânea. Preserve a grafia e capitalização oficiais, inclusive artigos como "
+    "'for' e 'the'; use exatamente a mesma grafia para músicas do mesmo álbum. "
+    "Não invente álbum, gênero, ano ou número de faixa. Escolha o gênero geral do "
+    "catálogo com grafia consistente; se não souber, retorne null e marque como incerto.\n"
+    "11. Responda SOMENTE com o JSON do schema, sem comentários e sem cercas de código."
 )
 
 ESQUEMA: Dict[str, Any] = {
@@ -148,30 +158,19 @@ def montar_pedido(resultado: TrackResult) -> str:
 
 
 def _conferir_musicbrainz(ident: Identificacao) -> None:
-    """Confirma o álbum na MusicBrainz e guarda o mbid do release-group."""
+    """Confere a gravação dentro do álbum, não apenas um grupo de mesmo nome."""
     if not ident.album:
         return
-    try:
-        grupos = musicbrainz.buscar_release_group(ident.album, ident.artista, ident.ano)
-    except Exception:                                             # noqa: BLE001
-        return
-    if not grupos:
-        ident.campos_incertos = sorted(set(ident.campos_incertos + ["album"]))
-        return
-    # O nome do álbum sozinho não prova o intérprete nem a gravação.
-    melhor = next((g for g in grupos if g.get('artista') and
-                   similaridade(ident.artista, g['artista']) >= .85 and
-                   similaridade(ident.album, g.get('album') or '') >= .85), None)
-    if not melhor:
+    from ..metadata import album_original
+    achado = album_original.encontrar(ident.titulo, ident.artista)
+    if not achado or normalizar(ident.album) != normalizar(achado['album']):
         ident.campos_incertos = sorted(set(ident.campos_incertos + ["album"]))
         return
     ident.verificado_musicbrainz = True
-    ident.mbid_release_group = melhor.get("mbid") or ""
-    # a MusicBrainz é a fonte de verdade do nome do álbum
-    if melhor.get("album"):
-        ident.album = melhor["album"]
-    if not ident.ano and melhor.get("ano"):
-        ident.ano = melhor["ano"]
+    ident.mbid_release_group = achado.get('release_group') or ''
+    ident.album = achado['album']
+    if not ident.ano:
+        ident.ano = achado.get('ano')
 
 
 # ------------------------------------------------------------------- principal
@@ -235,6 +234,7 @@ def identificar(resultado: TrackResult, config: Config,
         ident.ok = False
         ident.erro = "a IA não confirmou título e artista"
 
-    if ident.ok:
-        _conferir_musicbrainz(ident)
+    # O cruzamento da gravação com o álbum é feito no catálogo durante a
+    # montagem dos metadados. Nome de álbum + artista, isoladamente, não prova
+    # que a faixa esteja naquele lançamento.
     return ident

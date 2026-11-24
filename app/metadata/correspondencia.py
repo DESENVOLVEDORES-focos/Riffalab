@@ -65,10 +65,9 @@ def versoes(texto: str) -> set[str]:
 def identidade_metadados(titulo: str, artista: str, candidato: Dict[str, Any]) -> bool:
     """Exige nomes completos para não misturar tags de artistas/faixas parecidos."""
     import difflib
-    import re
     def titulo_base(texto):
-        texto = re.sub(r"\s*(?:[\(\[]\s*|[-–—]\s*)(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?\s*[\)\]]?\s*$", "", texto or "", flags=re.I)
-        return normalizar(texto)
+        from ..texto import limpar_titulo_tags
+        return normalizar(limpar_titulo_tags(texto or ''))
     def semelhante(a, b, minimo):
         return bool(a and b and (a == b or difflib.SequenceMatcher(None, a, b).ratio() >= minimo))
     if not semelhante(titulo_base(titulo), titulo_base(candidato.get('titulo')), .92):

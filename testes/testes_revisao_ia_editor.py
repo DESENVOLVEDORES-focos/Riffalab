@@ -178,6 +178,37 @@ class RevisaoIA(unittest.TestCase):
         finally:
             liberar.set(); EXECUTOR_GLOBAL.aguardar(5000)
 
+    def test_botao_real_recupera_400_e_atualiza_editor(self):
+        import json, io, urllib.error
+        from app import seguranca
+        class Resp:
+            def __enter__(self): return self
+            def __exit__(self,*args): pass
+            def read(self):
+                dados={'identificado':True,'confianca':.95,'titulo':'Canção',
+                       'artista':'Pessoa','album':'Disco','genero':'Rock',
+                       'ano':2001,'faixa':3,'artista_album':'Pessoa',
+                       'artistas_participantes':[],'campos_incertos':[]}
+                return json.dumps({'model':'teste','choices':[{'finish_reason':'stop',
+                                  'message':{'content':json.dumps(dados)}}]}).encode()
+        def err():
+            dados={'error':{'message':'Failed to generate JSON','code':'json_validate_failed'}}
+            return urllib.error.HTTPError('https://api.groq.com',400,'erro',{},io.BytesIO(json.dumps(dados).encode()))
+        def executar(fn,*args,**kwargs):
+            dados=fn(*args,revisao=kwargs['revisao'])
+            kwargs['ao_resultado'](dados)
+        self.mock.stop()
+        with patch.object(downloads_page.EXECUTOR_GLOBAL,'rodar',side_effect=executar), \
+             patch.object(seguranca,'existe',return_value=True), \
+             patch.object(seguranca,'ler',return_value='chave-ficticia'), \
+             patch('urllib.request.urlopen',side_effect=[err(),err(),Resp()]) as chamadas:
+            self.dlg.btn_rever_ia.click()
+        self.assertEqual(chamadas.call_count,3)
+        self.assertEqual(self.dlg.campos['album'].text(),'Disco')
+        self.assertEqual(self.dlg.campos['faixa'].text(),'3')
+        self.assertIn('Sugestão recebida',self.dlg.lbl_revisao_ia.text())
+        self.assertIsNone(self.linha.preparacao)
+
     def test_composicao_do_pedido_torna_dados_do_usuario_contexto_nao_verdade(self):
         revisao={'dados_atuais':{'album':'errado'},'observacao':'faixa errada'}
         bruto={'identificado':True,'confianca':.9,'titulo':'Canção','artista':'Pessoa'}

@@ -248,7 +248,7 @@ class DialogoEditarDados(QDialog):
         self.btn_rever_ia = QPushButton('Pedir nova sugestão à IA')
         self.btn_rever_ia.clicked.connect(self._pedir_nova_sugestao)
         raiz.addWidget(self.btn_rever_ia)
-        self.lbl_revisao_ia = QLabel('A IA recebe os dados desta música e os campos acima. '
+        self.lbl_revisao_ia = QLabel('A IA recebe título, artista, álbum e sua observação. '
                                      'Confira as sugestões antes de salvar.')
         self.lbl_revisao_ia.setWordWrap(True)
         self.lbl_revisao_ia.setTextFormat(Qt.PlainText)

@@ -21,9 +21,9 @@ Se não houver informações suficientes, alguns campos ficarão vazios. **Antes
 
 ## Pedir nova sugestão à IA
 
-Em **Downloads**, abra **Editar dados** e clique em **Pedir nova sugestão à IA**. Se quiser, escreva no campo acima o que parece errado, por exemplo “o álbum está errado”. O RiffLab envia à Groq os dados da origem, os campos mostrados no editor e sua observação; não envie informações sensíveis nesse campo. Para funcionar, é preciso ter a IA ativada e a chave configurada em Configurações.
+Em **Downloads**, abra **Editar dados** e clique em **Pedir nova sugestão à IA**. Se quiser, escreva no campo acima o que parece errado, por exemplo “o álbum está errado”. O RiffLab envia à Groq o título original, título, artista, álbum e sua observação; não envie informações sensíveis nesse campo. Essa chamada à IA não escuta o áudio nem faz pesquisa na internet; os catálogos são consultados separadamente na preparação. Para funcionar, é preciso ter a IA ativada e a chave configurada em Configurações.
 
-A consulta ocorre em segundo plano. A IA pode repetir a resposta, falhar ou errar; os valores sugeridos não são prova, inclusive o álbum. Confira tudo e clique em **Salvar** para aceitar no editor, ou **Cancelar** para descartar. Campos alterados enquanto aguarda não são substituídos; se mudar o título ou artista durante a consulta, peça novamente. Caso o álbum ou a música mude, dados antigos de edição sem nova sugestão são limpos para evitar misturas. Se título, artista ou álbum mudar, será necessário revisar a capa novamente antes de baixar. O botão não modifica MP3s já existentes.
+A consulta ocorre em segundo plano. Se a resposta vier em um formato que a Groq não aceita, o RiffLab tenta outras formas automaticamente, sem trocar de modelo. A IA pode repetir a resposta, falhar ou errar; os valores sugeridos não são prova, inclusive o álbum. Confira tudo e clique em **Salvar** para aceitar no editor, ou **Cancelar** para descartar. Campos alterados enquanto aguarda não são substituídos; se mudar o título ou artista durante a consulta, peça novamente. Caso o álbum ou a música mude, dados antigos de edição sem nova sugestão são limpos para evitar misturas. Se título, artista ou álbum mudar, será necessário revisar a capa novamente antes de baixar. O botão não modifica MP3s já existentes.
 
 ## Atualização segura
 

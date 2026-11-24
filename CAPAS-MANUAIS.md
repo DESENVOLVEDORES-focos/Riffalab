@@ -1,4 +1,4 @@
-# RiffLab 0.10.1 — capa manual e revisão dos dados
+# RiffLab 0.11.2 — capa manual e revisão dos dados
 
 A pesquisa de capas é manual: a janela **não abre o Google automaticamente** e não consulta serviços de capas. A IA opcional e os catálogos de metadados são independentes da escolha da imagem.
 
@@ -21,9 +21,11 @@ Se não houver informações suficientes, alguns campos ficarão vazios. **Antes
 
 ## Pedir nova sugestão à IA
 
-Em **Downloads**, abra **Editar dados** e clique em **Pedir nova sugestão à IA**. Se quiser, escreva no campo acima o que parece errado, por exemplo “o álbum está errado”. O RiffLab envia à Groq o título original, título, artista, álbum e sua observação; não envie informações sensíveis nesse campo. Essa chamada à IA não escuta o áudio nem faz pesquisa na internet; os catálogos são consultados separadamente na preparação. Para funcionar, é preciso ter a IA ativada e a chave configurada em Configurações.
+Em **Downloads**, abra **Editar dados**. Confira se **Título** e **Artista principal** identificam a música e não apenas o canal; corrija-os se necessário. Clique em **Pedir nova sugestão à IA**. Se quiser, escreva no campo acima o que parece errado, por exemplo “o álbum está errado”. O RiffLab envia à Groq o título original, título, artista, álbum e sua observação; não envie informações sensíveis nesse campo. A IA não escuta o áudio nem pesquisa na internet por si só. A consulta à IA requer ativação e chave em Configurações.
 
-A consulta ocorre em segundo plano. Se a resposta vier em um formato que a Groq não aceita, o RiffLab tenta outras formas automaticamente, sem trocar de modelo. A IA pode repetir a resposta, falhar ou errar; os valores sugeridos não são prova, inclusive o álbum. Confira tudo e clique em **Salvar** para aceitar no editor, ou **Cancelar** para descartar. Campos alterados enquanto aguarda não são substituídos; se mudar o título ou artista durante a consulta, peça novamente. Caso o álbum ou a música mude, dados antigos de edição sem nova sugestão são limpos para evitar misturas. Se título, artista ou álbum mudar, será necessário revisar a capa novamente antes de baixar. O botão não modifica MP3s já existentes.
+Em paralelo, o programa consulta separadamente MusicBrainz e, se não encontrar um lançamento compatível, iTunes. A busca usa título e artista juntos; não troca o artista informado por outro com música homônima. O álbum, ano e faixa propostos vêm do catálogo, não da confiança declarada pela IA. Uma participação sugerida pela IA é identificada como tal. Uma coleção do iTunes pode ser uma edição ou single diferente do álbum original. Mesmo uma associação de catálogo não comprova qual gravação há no vídeo; confira o resultado, especialmente versões ao vivo, remixes e diferentes edições.
+
+Se a busca falhar, o catálogo estiver indisponível ou não houver correspondência, os campos ficam como estavam. O aplicativo informa a situação: confira o título e o artista e tente novamente ou edite manualmente. Se trocar o álbum misturaria campos antigos sem dados equivalentes, o conjunto anterior é mantido para correção manual. Campos alterados enquanto aguarda são preservados; se mudar título ou artista, peça novamente. A consulta ocorre em segundo plano; se a Groq recusar o formato da resposta, outras formas são tentadas sem trocar de modelo. **Salvar** aceita os dados no editor e **Cancelar** descarta. Se título, artista ou álbum mudar, revise a capa novamente antes de baixar. O botão não modifica MP3s já existentes.
 
 ## Atualização segura
 

@@ -59,6 +59,9 @@ def versoes(texto: str) -> set[str]:
         ("live", r"\b(?:live|ao vivo|en vivo)\b"),
         ("remix", r"\bremix\b"), ("karaoke", r"\bkaraoke\b"),
         ("instrumental", r"\binstrumental\b"),
+        ("demo", r"\bdemo\b"), ("cover", r"\bcover\b"),
+        ("original", r"\b(?:original version|versao original|original mix)\b"),
+        ("edit", r"\b(?:radio edit|single edit|extended edit)\b"),
         ("acustico", r"\b(?:acoustic|acustico)\b")) if re.search(padrao, texto)}
 
 

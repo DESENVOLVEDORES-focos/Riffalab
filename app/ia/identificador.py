@@ -89,7 +89,9 @@ ESQUEMA: Dict[str, Any] = {
 
 SISTEMA_REVISAO = (
     "Você cataloga músicas. Reavalie a música usando o título, artista e álbum "
-    "informados; eles podem conter erros. Não invente nem mude um campo apenas "
+    "informados. Use o artista informado como referência principal: não o troque "
+    "por outro intérprete de uma música homônima. Os dados podem conter erros. "
+    "Não invente nem mude um campo apenas "
     "para dar uma resposta diferente. Identifique oito campos: título, artista, "
     "participações, álbum de origem, gênero, ano, faixa e artista do álbum. "
     "Retire do título 4K e remasterização de vídeo, preservando versões musicais "

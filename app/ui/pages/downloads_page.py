@@ -249,7 +249,7 @@ class DialogoEditarDados(QDialog):
         self.btn_rever_ia.clicked.connect(self._pedir_nova_sugestao)
         raiz.addWidget(self.btn_rever_ia)
         self.lbl_revisao_ia = QLabel('A IA recebe título, artista, álbum e sua observação. '
-                                     'Confira as sugestões antes de salvar.')
+                                     'O catálogo é consultado separadamente. Confira antes de salvar.')
         self.lbl_revisao_ia.setWordWrap(True)
         self.lbl_revisao_ia.setTextFormat(Qt.PlainText)
         raiz.addWidget(self.lbl_revisao_ia)
@@ -266,75 +266,81 @@ class DialogoEditarDados(QDialog):
         if self._config is None:
             self.lbl_revisao_ia.setText('Não foi possível acessar as configurações da IA.')
             return
-        from ...ia import identificador
+        from ...ia import identificador, revisao as revisao_ia
         anteriores = {k: c.text().strip() for k, c in self.campos.items()}
         revisao = {'dados_atuais': anteriores, 'observacao': self.campo_pedido_ia.text().strip()}
         self._revisao_em_andamento = True
         self.btn_rever_ia.setEnabled(False)
-        self.lbl_revisao_ia.setText('Pedindo nova sugestão à IA… Você pode continuar editando. '
+        self.lbl_revisao_ia.setText('Consultando a IA e os catálogos… Você pode continuar editando. '
                                      'Se salvar ou cancelar antes da resposta, ela será descartada.')
 
-        def resultado(ident):
+        def resultado(resposta):
             if not self._revisao_ativa:
                 return
             self._revisao_em_andamento = False
             self.btn_rever_ia.setEnabled(True)
-            if not ident.ok:
-                self.lbl_revisao_ia.setText('Não foi possível obter uma sugestão: ' +
-                    texto_seguro(ident.erro or 'a IA não identificou a música') +
-                    '. Seus campos não foram alterados.')
-                return
-            from ...texto import normalizar, limpar_titulo_tags
-            incertos = {normalizar(str(c)).replace(' ', '_') for c in (ident.campos_incertos or [])}
-            if identificador._confianca(ident.confianca) < .70:
-                self.lbl_revisao_ia.setText('A IA informou baixa confiança. Seus campos foram mantidos; '
-                                            'tente novamente ou edite manualmente.')
-                return
+            ident = resposta['ident']
+            catalogo = resposta['catalogo']
+            consulta = resposta['consulta']
+            from ...texto import normalizar
             atuais = {k: c.text().strip() for k, c in self.campos.items()}
             if any(atuais[k] != anteriores[k] for k in ('titulo', 'artista')):
                 self.lbl_revisao_ia.setText('Título ou artista mudou durante a consulta. '
                                             'Nenhuma sugestão foi aplicada; peça novamente se desejar.')
                 return
-            sugestoes = {}
-            for chave in self.campos:
-                valor = getattr(ident, chave, None)
-                if chave in incertos or not valor:
-                    continue
-                if isinstance(valor, list):
-                    valor = ', '.join(valor)
-                if chave == 'titulo':
-                    valor = limpar_titulo_tags(valor)
-                sugestoes[chave] = str(valor).strip()
-            # Não aplicar faixa/ano de um álbum quando a pessoa mudou o álbum
-            # enquanto a consulta estava em andamento.
-            album_editado = atuais['album'] != anteriores['album']
-            if album_editado:
-                for chave in ('album', 'ano', 'faixa', 'artista_album'):
-                    sugestoes.pop(chave, None)
-            identidade_mudou = any(k in sugestoes and
-                normalizar(sugestoes[k]) != normalizar(anteriores[k]) for k in ('titulo', 'artista'))
-            album_mudou = 'album' in sugestoes and normalizar(sugestoes['album']) != normalizar(anteriores['album'])
-            dependentes = ('album', 'ano', 'faixa', 'genero', 'artista_album', 'artistas_participantes') if identidade_mudou else (
-                ('ano', 'faixa', 'genero', 'artista_album') if album_mudou else ())
-            limpos = []
-            for chave in dependentes:
-                if chave not in sugestoes and atuais[chave] == anteriores[chave] and atuais[chave]:
-                    self.campos[chave].clear()
-                    self._campos_sugeridos.add(chave)
-                    limpos.append(chave)
+            if not catalogo:
+                detalhe = (' A IA informou: ' + texto_seguro(ident.erro) + '.'
+                           if not ident.ok and ident.erro else '')
+                self.lbl_revisao_ia.setText('Nenhum lançamento compatível foi encontrado nos catálogos '
+                    'ou os serviços estão indisponíveis. Confira título e artista (não apenas o canal), '
+                    'corrija se necessário e tente novamente. Seus campos foram mantidos.' + detalhe)
+                return
+
+            sugestoes = {'titulo': catalogo.get('titulo', consulta['titulo'])}
+            # O artista escolhido nunca é trocado silenciosamente. A IA só
+            # contribui participações se identificou exatamente a mesma música.
+            ia_concorda = (ident.ok and identificador._confianca(ident.confianca) >= .70 and
+                revisao_ia.mesma_identidade(consulta['titulo'], consulta['artista'],
+                                            {'titulo': ident.titulo, 'artista': ident.artista}))
+            incertos = {normalizar(str(c)).replace(' ', '_') for c in (ident.campos_incertos or [])}
+            if ia_concorda and 'artistas_participantes' not in incertos and ident.artistas_participantes:
+                sugestoes['artistas_participantes'] = ', '.join(ident.artistas_participantes)
+            if catalogo.get('genero'):
+                sugestoes['genero'] = catalogo['genero']
+
+            # Aplicar a edição como conjunto: nunca deixar faixa/ano do álbum
+            # anterior junto ao novo, nem substituir uma edição manual tardia.
+            campos_edicao = ('album', 'ano', 'faixa', 'artista_album')
+            nova_edicao = {k: str(catalogo[k]).strip() for k in campos_edicao if catalogo.get(k)}
+            album_mudou = normalizar(nova_edicao.get('album', '')) != normalizar(anteriores['album'])
+            editada = any(atuais[k] != anteriores[k] for k in campos_edicao)
+            incompleta = album_mudou and any(anteriores[k] and k not in nova_edicao
+                                             for k in campos_edicao[1:])
+            ano_mudou = (not album_mudou and nova_edicao.get('ano') and anteriores['ano']
+                         and nova_edicao['ano'] != anteriores['ano'])
+            if ano_mudou and anteriores['faixa'] and 'faixa' not in nova_edicao:
+                incompleta = True
+            if not editada and not incompleta:
+                sugestoes.update(nova_edicao)
             aplicados = []
             for chave, valor in sugestoes.items():
-                if atuais[chave] == anteriores[chave]:
-                    self.campos[chave].setText(valor)
+                if valor and atuais[chave] == anteriores[chave]:
+                    self.campos[chave].setText(str(valor))
                     self._campos_sugeridos.add(chave)
                     aplicados.append(chave)
-            self.lbl_revisao_ia.setText(
-                ('Sugestão recebida. Confira todos os campos: a IA pode errar e o álbum não foi confirmado. '
-                 'Salve para usar ou cancele para descartar.' if aplicados else
-                 'A IA não trouxe campos seguros para aplicar. Seus dados foram mantidos.') +
-                (' Campos antigos sem confirmação foram limpos para não misturar edições.' if limpos else '') +
-                (' Campos alterados durante a consulta foram preservados.' if any(
-                    atuais[k] != anteriores[k] for k in atuais) else ''))
+            fonte = 'MusicBrainz' if catalogo.get('fonte') == 'musicbrainz' else 'iTunes'
+            mensagem = ('Sugestão baseada em uma associação no ' + fonte +
+                        '. Confira a música e a edição antes de salvar: o catálogo pode errar '
+                        'e não identifica o áudio do vídeo.')
+            if ia_concorda and 'artistas_participantes' in sugestoes:
+                mensagem += ' Participações são sugestão da IA, não confirmação do catálogo.'
+            elif not ia_concorda:
+                mensagem += ' A IA não confirmou a mesma identidade; seus dados não foram usados.'
+            if incompleta:
+                mensagem += ' O álbum anterior foi mantido: faltam dados para trocar a edição sem misturar campos; corrija manualmente.'
+            if any(atuais[k] != anteriores[k] for k in atuais):
+                mensagem += ' Campos alterados durante a consulta foram preservados.'
+            self.lbl_revisao_ia.setText(mensagem)
 
         def falha(mensagem):
             if not self._revisao_ativa:
@@ -344,7 +350,7 @@ class DialogoEditarDados(QDialog):
             self.lbl_revisao_ia.setText('Falha ao consultar a IA: ' + texto_seguro(mensagem) +
                                         '. Seus campos não foram alterados.')
         try:
-            EXECUTOR_GLOBAL.rodar(identificador.identificar, self._linha.pedido['resultado'],
+            EXECUTOR_GLOBAL.rodar(revisao_ia.reavaliar, self._linha.pedido['resultado'],
                                   self._config, revisao=revisao, ao_resultado=resultado, ao_erro=falha)
         except Exception as exc:
             falha(f'{type(exc).__name__}: {exc}')

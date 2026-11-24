@@ -1,3 +1,5 @@
+> **Versão 0.11.2:** a nova sugestão confere título e artista juntos em catálogos antes de propor um álbum; dados não encontrados são preservados. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
+
 > **Versão 0.11.1:** a revisão pela IA tenta alternativas quando a Groq não consegue formatar a resposta. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
 
 > **Versão 0.11.0:** em Editar dados, peça uma nova sugestão à IA e confira antes de salvar. A paleta de cores também está em português. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).

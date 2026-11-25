@@ -1117,7 +1117,7 @@ class Interface(unittest.TestCase):
         self.assertIn('ano', restaurada['apagar_tags'])
         dialogo.deleteLater()
 
-    def test_mudar_identidade_exige_capa_nova_e_nao_herda_faixa_antiga(self):
+    def test_mudar_identidade_exige_revisao_e_nao_herda_faixa_antiga(self):
         from app.models import CoverResult, TrackMeta, TrackResult
         from app.ui.pages import downloads_page
         d = self.janela.pagina_downloads
@@ -1131,7 +1131,8 @@ class Interface(unittest.TestCase):
         dialogo.exec = lambda: QDialog.Accepted
         with patch.object(downloads_page, 'DialogoEditarDados', return_value=dialogo):
             d._editar_dados(linha)
-        self.assertIsNone(linha.preparacao)
+        self.assertTrue(linha.preparacao['revisao_pendente'])
+        self.assertIsNone(linha.preparacao['meta'].faixa)
         self.assertEqual(linha.pedido['edicao']['genero'], 'Jazz')
         self.assertNotIn('faixa', linha.pedido['edicao'])
         self.assertNotIn('ano', linha.pedido['edicao'])

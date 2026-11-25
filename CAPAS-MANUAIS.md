@@ -1,4 +1,4 @@
-# RiffLab 0.11.2 — capa manual e revisão dos dados
+# RiffLab 0.11.3 — capa manual e revisão dos dados
 
 A pesquisa de capas é manual: a janela **não abre o Google automaticamente** e não consulta serviços de capas. A IA opcional e os catálogos de metadados são independentes da escolha da imagem.
 
@@ -25,7 +25,7 @@ Em **Downloads**, abra **Editar dados**. Confira se **Título** e **Artista prin
 
 Em paralelo, o programa consulta separadamente MusicBrainz e, se não encontrar um lançamento compatível, iTunes. A busca usa título e artista juntos; não troca o artista informado por outro com música homônima. O álbum, ano e faixa propostos vêm do catálogo, não da confiança declarada pela IA. Uma participação sugerida pela IA é identificada como tal. Uma coleção do iTunes pode ser uma edição ou single diferente do álbum original. Mesmo uma associação de catálogo não comprova qual gravação há no vídeo; confira o resultado, especialmente versões ao vivo, remixes e diferentes edições.
 
-Se a busca falhar, o catálogo estiver indisponível ou não houver correspondência, os campos ficam como estavam. O aplicativo informa a situação: confira o título e o artista e tente novamente ou edite manualmente. Se trocar o álbum misturaria campos antigos sem dados equivalentes, o conjunto anterior é mantido para correção manual. Campos alterados enquanto aguarda são preservados; se mudar título ou artista, peça novamente. A consulta ocorre em segundo plano; se a Groq recusar o formato da resposta, outras formas são tentadas sem trocar de modelo. **Salvar** aceita os dados no editor e **Cancelar** descarta. Se título, artista ou álbum mudar, revise a capa novamente antes de baixar. O botão não modifica MP3s já existentes.
+Se a busca falhar, o catálogo estiver indisponível ou não houver correspondência, os campos ficam como estavam. O aplicativo informa a situação: confira o título e o artista e tente novamente ou edite manualmente. Se trocar o álbum misturaria campos antigos sem dados equivalentes, o conjunto anterior é mantido para correção manual. Campos alterados enquanto aguarda são preservados; se mudar título ou artista, peça novamente. A consulta ocorre em segundo plano; se a Groq recusar o formato da resposta, outras formas são tentadas sem trocar de modelo. **Salvar** aceita os dados no editor e **Cancelar** descarta. Se título, artista ou álbum mudar, a capa já escolhida fica guardada. Clique em **Revisar capa**: a mesma imagem aparecerá na janela, e você poderá confirmá-la, trocá-la ou escolher ficar sem capa, sem precisar copiá-la outra vez. Aguarde a atualização dos metadados antes de confirmar; se cancelar ou houver falha, a imagem continua guardada. A revisão fica pendente até a confirmação, inclusive ao reabrir o aplicativo. O botão não modifica MP3s já existentes.
 
 ## Atualização segura
 

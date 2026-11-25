@@ -61,6 +61,7 @@ def serializar_selecao(linha) -> dict:
         d['preparacao'] = {'meta': asdict(prep['meta']), 'capa': capa,
                             'ident': asdict(prep['ident']) if prep.get('ident') else None,
                             'apagar_tags': list(prep.get('apagar_tags') or []),
+                            'revisao_pendente': bool(prep.get('revisao_pendente')),
                             'consulta_capa': dict(prep.get('consulta_capa') or {})}
     return d
 
@@ -85,6 +86,7 @@ def desserializar_selecao(d: dict) -> tuple[dict, bool, dict | None]:
             preparacao = {'meta': _construir(TrackMeta, p['meta']), 'capa': capa,
                           'ident': _construir(Identificacao, p['ident']) if p.get('ident') else None,
                           'apagar_tags': apagar,
+                          'revisao_pendente': p.get('revisao_pendente') is True,
                           'consulta_capa': {k: str(v) for k, v in consulta.items()
                                             if k in ('titulo', 'artista', 'origem', 'aviso')}}
     return pedido, bool(d.get('marcada', True)), preparacao

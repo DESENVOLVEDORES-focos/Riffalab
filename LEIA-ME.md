@@ -1,3 +1,5 @@
+> **Versão 0.11.3:** a capa escolhida é mantida ao editar os dados; se a identidade mudar, você pode revisar e confirmar a mesma imagem. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
+
 > **Versão 0.11.2:** a nova sugestão confere título e artista juntos em catálogos antes de propor um álbum; dados não encontrados são preservados. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
 
 > **Versão 0.11.1:** a revisão pela IA tenta alternativas quando a Groq não consegue formatar a resposta. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).

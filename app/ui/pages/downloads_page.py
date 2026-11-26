@@ -255,6 +255,20 @@ class DialogoEditarDados(QDialog):
         self.lbl_revisao_ia.setWordWrap(True)
         self.lbl_revisao_ia.setTextFormat(Qt.PlainText)
         raiz.addWidget(self.lbl_revisao_ia)
+        self.lbl_resumo_revisao = QLabel('')
+        self.lbl_resumo_revisao.setWordWrap(True)
+        self.lbl_resumo_revisao.setTextFormat(Qt.PlainText)
+        self.lbl_resumo_revisao.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.area_resumo_revisao = QScrollArea()
+        self.area_resumo_revisao.setWidgetResizable(True)
+        self.area_resumo_revisao.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.area_resumo_revisao.setMaximumHeight(150)
+        self.area_resumo_revisao.setMinimumHeight(100)
+        self.area_resumo_revisao.setWidget(self.lbl_resumo_revisao)
+        self.area_resumo_revisao.hide()
+        raiz.addWidget(self.area_resumo_revisao)
+        for chave in ('titulo', 'artista', 'album'):
+            self.campos[chave].textEdited.connect(lambda _texto: self.area_resumo_revisao.hide())
         botoes = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         botoes.button(QDialogButtonBox.Save).setText('Salvar')
         botoes.button(QDialogButtonBox.Cancel).setText('Cancelar')
@@ -270,6 +284,8 @@ class DialogoEditarDados(QDialog):
             return
         from ...ia import identificador, revisao as revisao_ia
         anteriores = {k: c.text().strip() for k, c in self.campos.items()}
+        self.lbl_resumo_revisao.clear()
+        self.area_resumo_revisao.hide()
         revisao = {'dados_atuais': anteriores, 'observacao': self.campo_pedido_ia.text().strip()}
         self._revisao_em_andamento = True
         self.btn_rever_ia.setEnabled(False)
@@ -290,6 +306,24 @@ class DialogoEditarDados(QDialog):
                 self.lbl_revisao_ia.setText('Título ou artista mudou durante a consulta. '
                                             'Nenhuma sugestão foi aplicada; peça novamente se desejar.')
                 return
+            ia_mesma = (ident.ok and revisao_ia.mesma_identidade(
+                consulta['titulo'], consulta['artista'],
+                {'titulo': ident.titulo, 'artista': ident.artista}))
+            if ia_mesma:
+                # Informação textual de apoio; nem músicos nem créditos do álbum
+                # são inseridos no campo de artistas participantes da faixa.
+                incertos_ia = {normalizar(str(c)).replace(' ', '_') for c in (ident.campos_incertos or [])}
+                def valor(chave):
+                    dado = getattr(ident, chave, None)
+                    return str(dado) if dado and chave not in incertos_ia else 'não informado'
+                resumo = ('Sugestão da IA (não é pesquisa nem confirmação; confira):\n'
+                          f'Música: {valor("titulo")}\nArtista: {valor("artista")}\n'
+                          f'Álbum: {valor("album")}\nGênero: {valor("genero")}\n'
+                          f'Ano: {valor("ano")} · Faixa: {valor("faixa")}')
+                if ident.creditos_album and 'creditos_album' not in incertos_ia:
+                    resumo += '\nMúsicos e produção do álbum (sugestão da IA): ' + '; '.join(ident.creditos_album[:30])
+                self.lbl_resumo_revisao.setText(resumo)
+                self.area_resumo_revisao.show()
             if not catalogo:
                 detalhe = (' A IA informou: ' + texto_seguro(ident.erro) + '.'
                            if not ident.ok and ident.erro else '')
@@ -301,14 +335,28 @@ class DialogoEditarDados(QDialog):
             sugestoes = {'titulo': catalogo.get('titulo', consulta['titulo'])}
             # O artista escolhido nunca é trocado silenciosamente. A IA só
             # contribui participações se identificou exatamente a mesma música.
-            ia_concorda = (ident.ok and identificador._confianca(ident.confianca) >= .70 and
-                revisao_ia.mesma_identidade(consulta['titulo'], consulta['artista'],
-                                            {'titulo': ident.titulo, 'artista': ident.artista}))
             incertos = {normalizar(str(c)).replace(' ', '_') for c in (ident.campos_incertos or [])}
+            ia_concorda = (ia_mesma and identificador._confianca(ident.confianca) >= .70
+                           and not {'titulo', 'artista'}.intersection(incertos))
             if ia_concorda and 'artistas_participantes' not in incertos and ident.artistas_participantes:
                 sugestoes['artistas_participantes'] = ', '.join(ident.artistas_participantes)
+            genero_da_ia = False
             if catalogo.get('genero'):
                 sugestoes['genero'] = catalogo['genero']
+            elif (ia_concorda and ident.genero and 'genero' not in incertos
+                  and 'album' not in incertos and ident.album
+                  and normalizar(ident.album) == normalizar(catalogo.get('album') or '')):
+                sugestoes['genero'] = ident.genero
+                genero_da_ia = True
+            creditos_catalogo = []
+            if catalogo.get('creditos_album'):
+                creditos_catalogo.append('Créditos do álbum no MusicBrainz: ' + '; '.join(catalogo['creditos_album'][:30]))
+            if catalogo.get('creditos_faixa'):
+                creditos_catalogo.append('Créditos da faixa no MusicBrainz: ' + '; '.join(catalogo['creditos_faixa'][:30]))
+            if creditos_catalogo:
+                anterior = self.lbl_resumo_revisao.text()
+                self.lbl_resumo_revisao.setText((anterior + '\n\n' if anterior else '') + '\n'.join(creditos_catalogo))
+                self.area_resumo_revisao.show()
 
             # Aplicar a edição como conjunto: nunca deixar faixa/ano do álbum
             # anterior junto ao novo, nem substituir uma edição manual tardia.
@@ -330,12 +378,17 @@ class DialogoEditarDados(QDialog):
                     self.campos[chave].setText(str(valor))
                     self._campos_sugeridos.add(chave)
                     aplicados.append(chave)
-            fonte = 'MusicBrainz' if catalogo.get('fonte') == 'musicbrainz' else 'iTunes'
+            fontes = catalogo.get('fontes') or [catalogo.get('fonte')]
+            fonte = ' + '.join('MusicBrainz' if f == 'musicbrainz' else 'iTunes' for f in fontes)
             mensagem = ('Sugestão baseada em uma associação no ' + fonte +
                         '. Confira a música e a edição antes de salvar: o catálogo pode errar '
                         'e não identifica o áudio do vídeo.')
+            if genero_da_ia:
+                mensagem += ' Gênero é sugestão da IA, não confirmação do catálogo.'
             if ia_concorda and 'artistas_participantes' in sugestoes:
                 mensagem += ' Participações são sugestão da IA, não confirmação do catálogo.'
+            elif not ident.ok:
+                mensagem += ' IA indisponível: ' + texto_seguro(ident.erro or 'não identificou a música') + '. Confira a chave e use Testar conexão se necessário.'
             elif not ia_concorda:
                 mensagem += ' A IA não confirmou a mesma identidade; seus dados não foram usados.'
             if incompleta:

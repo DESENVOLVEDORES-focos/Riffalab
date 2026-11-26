@@ -7,14 +7,17 @@ IMPORTANTE — leia antes de ativar:
     Creative Commons, canais que autorizam download, seu próprio material);
   * baixar conteúdo protegido sem autorização viola os termos das plataformas
     e a legislação de direitos autorais — a responsabilidade é de quem usa;
-  * se `cookies.txt` existir, ele é passado ao yt-dlp por caminho, sem que o
-    aplicativo leia, exiba ou registre o conteúdo em log.
+  * o yt-dlp usa uma cópia temporária do `cookies.txt`, nunca o original.
+    O conteúdo é sensível e não é exibido nem registrado em log.
 """
 from __future__ import annotations
 
 import json
 import re
 import subprocess
+import shutil
+import tempfile
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -28,6 +31,27 @@ from ..texto import (artista_do_titulo, limpar_titulo, parece_canal,
                      separar_artista_titulo, similaridade)
 from ..tools import ambiente_ferramentas, ffmpeg, ytdlp
 from .base import FonteBase, Progresso, emitir
+
+@contextmanager
+def _cookies_isolados(args: List[str]):
+    """Cada subprocesso recebe cópia própria; yt-dlp também grava cookie jars."""
+    comando = list(args)
+    if '--cookies' not in comando:
+        yield comando
+        return
+    indice = comando.index('--cookies') + 1
+    if indice >= len(comando):
+        raise RuntimeError('Caminho dos cookies não foi informado.')
+    with tempfile.TemporaryDirectory(prefix='rifflab-cookies-') as pasta:
+        copia = Path(pasta) / 'cookies.txt'
+        try:
+            shutil.copyfile(comando[indice], copia)
+        except OSError as exc:
+            raise RuntimeError('Não foi possível ler o arquivo de cookies selecionado. '
+                               'Verifique o caminho e as permissões em Configurações.') from exc
+        comando[indice] = str(copia)
+        yield comando
+
 
 _RE_PCT = re.compile(r"\[download\]\s+([\d.]+)%")
 _RE_ERRO = re.compile(r"^\s*ERROR:\s*(.+)$", re.MULTILINE)
@@ -114,8 +138,12 @@ class FonteYtDlp(FonteBase):
         args = [exe, "--no-color", "--ignore-config",
                 "--socket-timeout", "20", "--retries", str(tentativas)]
         cookies = self.config.caminho_cookies if self.config else None
-        if self.config and self.config.get("usar_cookies") and cookies and Path(cookies).is_file():
-            args += ["--cookies", str(cookies)]        # só o caminho, nunca o conteúdo
+        if self.config and self.config.get("usar_cookies") and cookies:
+            if Path(cookies).is_file():
+                args += ["--cookies", str(cookies)]
+            elif self.config.get('caminho_cookies'):
+                raise RuntimeError('O arquivo de cookies selecionado não foi encontrado. '
+                                   'Verifique o caminho em Configurações.')
         ff = ffmpeg()
         if ff.ok:
             # O caminho do executável também funciona com espaços ou nome
@@ -124,10 +152,11 @@ class FonteYtDlp(FonteBase):
         return args
 
     def _rodar(self, args: List[str], timeout: int = 120) -> tuple[int, str, str]:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
-                           creationflags=CRIAR_SEM_JANELA, encoding="utf-8", errors="replace",
-                           env=ambiente_ferramentas())
-        return p.returncode, p.stdout or "", p.stderr or ""
+        with _cookies_isolados(args) as comando:
+            p = subprocess.run(comando, capture_output=True, text=True, timeout=timeout,
+                               creationflags=CRIAR_SEM_JANELA, encoding="utf-8", errors="replace",
+                               env=ambiente_ferramentas())
+            return p.returncode, p.stdout or "", p.stderr or ""
 
     # ------------------------------------------------------------------ busca
     def buscar(self, consulta: str, limite: int = 20) -> List[TrackResult]:
@@ -577,20 +606,21 @@ class FonteYtDlp(FonteBase):
         if escolha.startswith("bestaudio"):
             escolha = "bestaudio/best"
         args[args.index("-f") + 1] = escolha
-        p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             text=True, creationflags=CRIAR_SEM_JANELA,
-                             encoding="utf-8", errors="replace", env=ambiente_ferramentas())
-        ultimos: List[str] = []
-        assert p.stdout is not None
-        for linha in p.stdout:
-            ultimos.append(linha.strip())
-            ultimos = ultimos[-12:]
-            m = _RE_PCT.search(linha)
-            if m:
-                emitir(progresso, 2 + int(float(m.group(1)) * 0.93),
-                       f"baixando… {m.group(1)}%")
-        p.stdout.close()
-        p.wait()
+        with _cookies_isolados(args) as comando:
+            p = subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 text=True, creationflags=CRIAR_SEM_JANELA,
+                                 encoding="utf-8", errors="replace", env=ambiente_ferramentas())
+            ultimos: List[str] = []
+            assert p.stdout is not None
+            for linha in p.stdout:
+                ultimos.append(linha.strip())
+                ultimos = ultimos[-12:]
+                m = _RE_PCT.search(linha)
+                if m:
+                    emitir(progresso, 2 + int(float(m.group(1)) * 0.93),
+                           f"baixando… {m.group(1)}%")
+            p.stdout.close()
+            p.wait()
         if p.returncode != 0:
             # --no-part pode deixar um arquivo incompleto com nome definitivo.
             for parcial in destino.parent.glob('audio_orig.*'):

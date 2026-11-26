@@ -41,18 +41,36 @@ def reavaliar(resultado: TrackResult, config, revisao: Dict[str, Any]) -> Dict[s
     pedido = dict(revisao, dados_atuais=atualizados)
 
     def procurar():
-        # Uma associação de gravação/lancamento no MusicBrainz tem prioridade;
-        # caso não haja, a coleção do iTunes é apenas outra edição possível.
-        for fonte, funcao in (('musicbrainz', album_original.encontrar),
-                             ('itunes', itunes.melhor_faixa)):
-            try:
-                dados = funcao(titulo, artista) or {}
-            except Exception:
-                continue
-            if (isinstance(dados, dict) and dados.get('album') and
-                    mesma_identidade(titulo, artista, dados)):
-                return dict(dados, fonte=fonte)
-        return {}
+        # A associação da gravação e do lançamento vem do MusicBrainz. O iTunes
+        # complementa gênero e, apenas para a mesma edição/ano, posição/crédito.
+        try:
+            mb = album_original.encontrar(titulo, artista) or {}
+        except Exception:
+            mb = {}
+        if not isinstance(mb, dict) or not mb.get('album') or not mesma_identidade(titulo, artista, mb):
+            mb = {}
+        if mb and all(mb.get(k) for k in ('genero', 'faixa', 'artista_album')):
+            return dict(mb, fonte='musicbrainz', fontes=['musicbrainz'])
+        try:
+            it = itunes.melhor_faixa(titulo, artista, mb.get('album', '')) or {}
+        except Exception:
+            it = {}
+        if not isinstance(it, dict) or not it.get('album') or not mesma_identidade(titulo, artista, it):
+            it = {}
+        if not mb:
+            return dict(it, fonte='itunes', fontes=['itunes']) if it else {}
+        dados = dict(mb, fonte='musicbrainz', fontes=['musicbrainz'])
+        if it:
+            dados['fontes'].append('itunes')
+            if it.get('genero') and not dados.get('genero'):
+                dados['genero'] = it['genero']
+            mesma_edicao = (normalizar(str(it.get('album') or '')) == normalizar(str(mb.get('album') or ''))
+                            and it.get('ano') and it.get('ano') == mb.get('ano'))
+            if mesma_edicao:
+                for chave in ('faixa', 'artista_album'):
+                    if it.get(chave) and not dados.get(chave):
+                        dados[chave] = it[chave]
+        return dados
 
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix='revisao-musica') as executor:
         futuro_ia = executor.submit(identificador.identificar, resultado, config, revisao=pedido)

@@ -191,12 +191,34 @@ def detalhes_grupo(release_group: str) -> Dict[str, Any]:
     return dados if isinstance(dados, dict) else {}
 
 
+def _creditos_artistas(relacoes: list) -> list[str]:
+    """Créditos explícitos daquela entidade; não transforma músicos em feat."""
+    papeis = {'vocal': 'vocais', 'instrument': 'instrumentos', 'producer': 'produção',
+              'performer': 'intérprete', 'conductor': 'regência', 'arranger': 'arranjo'}
+    saida, vistos = [], set()
+    for r in relacoes:
+        if not isinstance(r, dict) or r.get('target-type') != 'artist':
+            continue
+        tipo = str(r.get('type') or '').lower()
+        if tipo not in papeis:
+            continue
+        nome = str((r.get('artist') or {}).get('name') or '').strip()
+        atributos = [str(x).strip() for x in (r.get('attributes') or []) if str(x).strip()]
+        papel = ', '.join(atributos) if atributos else papeis[tipo]
+        texto = f'{nome} — {papel}'
+        if nome and texto not in vistos:
+            vistos.add(texto); saida.append(texto)
+        if len(saida) >= 30:
+            break
+    return saida
+
+
 def detalhes_release(release_id: str, titulo_faixa: str = "") -> Dict[str, Any]:
     """Álbum, ano, gênero e a posição da faixa dentro do disco."""
     if not release_id:
         return {}
     try:
-        params = urllib.parse.urlencode({"inc": "recordings artist-credits genres", "fmt": "json"})
+        params = urllib.parse.urlencode({"inc": "recordings artist-credits genres artist-rels recording-level-rels", "fmt": "json"})
         dados = _get(f"{BASE}/release/{release_id}?{params}")
     except SemConteudo:
         return {}
@@ -205,6 +227,7 @@ def detalhes_release(release_id: str, titulo_faixa: str = "") -> Dict[str, Any]:
 
     alvo = normalizar(titulo_faixa)
     faixa = disco = None
+    creditos_faixa = []
     midias = dados.get("media") or []
     if alvo:
         for i, media in enumerate(midias, start=1):
@@ -218,6 +241,7 @@ def detalhes_release(release_id: str, titulo_faixa: str = "") -> Dict[str, Any]:
                     digitos = "".join(ch for ch in numero if ch.isdigit())
                     faixa = digitos or numero
                     disco = media.get("position") or i
+                    creditos_faixa = _creditos_artistas((t.get("recording") or {}).get("relations") or [])
                     break
             if faixa:
                 break
@@ -232,6 +256,8 @@ def detalhes_release(release_id: str, titulo_faixa: str = "") -> Dict[str, Any]:
         "genero": generos[0]["name"] if generos else "",
         "artista": _artista(dados.get("artist-credit") or []),
         "artista_album": _artista(dados.get("artist-credit") or []),
+        "creditos_album": _creditos_artistas(dados.get("relations") or []),
+        "creditos_faixa": creditos_faixa,
     }
 
 

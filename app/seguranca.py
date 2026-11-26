@@ -53,30 +53,29 @@ def _dpapi(dados: bytes, proteger: bool) -> bytes:
     class DATA_BLOB(ctypes.Structure):
         _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
 
-    def blob(dado: bytes) -> DATA_BLOB:
-        buf = ctypes.create_string_buffer(dado, len(dado))
-        return DATA_BLOB(len(dado), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
-
-    def extrair(b: DATA_BLOB) -> bytes:
-        return ctypes.string_at(b.pbData, b.cbData)
-
+    # Manter o buffer vivo até o retorno e declarar ponteiros explicitamente:
+    # ctypes assume int por padrão, o que trunca ponteiros em Windows 64 bits.
+    buffer_entrada = ctypes.create_string_buffer(dados, len(dados))
+    entrada = DATA_BLOB(len(dados), ctypes.cast(buffer_entrada, ctypes.POINTER(ctypes.c_char)))
+    saida = DATA_BLOB()
     crypt32 = ctypes.windll.crypt32                     # type: ignore[attr-defined]
     kernel32 = ctypes.windll.kernel32                   # type: ignore[attr-defined]
-    entrada = blob(dados)
-    saida = DATA_BLOB()
     funcao = crypt32.CryptProtectData if proteger else crypt32.CryptUnprotectData
-    if proteger:
-        ok = funcao(ctypes.byref(entrada), None, None, None, None,
-                    _CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(saida))
-    else:
-        ok = funcao(ctypes.byref(entrada), None, None, None, None,
-                    _CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(saida))
+    funcao.argtypes = [ctypes.POINTER(DATA_BLOB), ctypes.c_void_p, ctypes.c_void_p,
+                       ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD,
+                       ctypes.POINTER(DATA_BLOB)]
+    funcao.restype = wintypes.BOOL
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    ok = funcao(ctypes.byref(entrada), None, None, None, None,
+                _CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(saida))
     if not ok:
         raise OSError("DPAPI recusou a operação")
     try:
-        return extrair(saida)
+        return ctypes.string_at(saida.pbData, saida.cbData)
     finally:
-        kernel32.LocalFree(saida.pbData)
+        kernel32.LocalFree(ctypes.cast(saida.pbData, ctypes.c_void_p))
+
 
 
 def limpar_texto(conteudo: str) -> str:

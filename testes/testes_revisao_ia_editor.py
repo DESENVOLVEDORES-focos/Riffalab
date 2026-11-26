@@ -31,6 +31,8 @@ def catalogo(**kwargs):
 
 class ConsultaRevisao(unittest.TestCase):
     def setUp(self):
+        self.itunes_padrao = patch.object(revisao.itunes, 'melhor_faixa', return_value=None)
+        self.itunes_padrao.start(); self.addCleanup(self.itunes_padrao.stop)
         self.r = TrackResult('id', 'ytdlp', 'Chicago', 'Michael Jackson')
         self.rev = {'dados_atuais': {'titulo': 'Michael Jackson - Chicago (4K)',
                                      'artista': 'Michael Jackson', 'album': 'Antigo'},
@@ -42,7 +44,7 @@ class ConsultaRevisao(unittest.TestCase):
              patch.object(revisao.album_original, 'encontrar', return_value=mb) as busca, \
              patch.object(revisao.itunes, 'melhor_faixa') as it:
             res = revisao.reavaliar(self.r, object(), self.rev)
-        busca.assert_called_once_with('Chicago', 'Michael Jackson'); it.assert_not_called()
+        busca.assert_called_once_with('Chicago', 'Michael Jackson'); it.assert_called_once_with('Chicago', 'Michael Jackson', 'Xscape')
         self.assertEqual(res['catalogo']['album'], 'Xscape')
         self.assertEqual(ia.call_args.kwargs['revisao']['dados_atuais']['artista'], 'Michael Jackson')
         self.assertEqual(ia.call_args.kwargs['revisao']['dados_atuais']['album'], 'Antigo')
@@ -108,6 +110,42 @@ class ConsultaRevisao(unittest.TestCase):
                                   resultado['catalogo']['faixa']), (album, ano, 2))
         musicbrainz.detalhes_grupo.cache_clear()
 
+    def test_complementa_mesma_edicao_sem_misturar_numeros(self):
+        self.rev['dados_atuais'].update(titulo='Total Eclipse of the Heart', artista='Bonnie Tyler')
+        mb = {'titulo':'Total Eclipse of the Heart', 'artista':'Bonnie Tyler',
+              'album':'Faster Than the Speed of Night', 'ano':1983}
+        it = dict(mb, genero='Rock', faixa=4, artista_album='Bonnie Tyler')
+        with patch.object(revisao.album_original, 'encontrar', return_value=mb), \
+             patch.object(revisao.itunes, 'melhor_faixa', return_value=it), \
+             patch.object(identificador, 'identificar', return_value=ident()):
+            dados = revisao.reavaliar(self.r, object(), self.rev)['catalogo']
+        self.assertEqual((dados['album'], dados['ano'], dados['faixa'], dados['genero']),
+                         ('Faster Than the Speed of Night', 1983, 4, 'Rock'))
+        self.assertEqual(dados['fontes'], ['musicbrainz','itunes'])
+        for alteracao in ({'album':'Outra coletânea'}, {'ano':2008}, {'artista':'Outra pessoa'}):
+            with self.subTest(alteracao=alteracao), \
+                 patch.object(revisao.album_original, 'encontrar', return_value=mb), \
+                 patch.object(revisao.itunes, 'melhor_faixa', return_value=dict(it, **alteracao)), \
+                 patch.object(identificador, 'identificar', return_value=ident()):
+                dados = revisao.reavaliar(self.r, object(), self.rev)['catalogo']
+                self.assertNotIn('faixa', dados)
+
+    def test_creditos_do_album_nao_sao_creditos_da_faixa(self):
+        from app.metadata import musicbrainz
+        dados = {'title':'Disco', 'date':'1983-04-08', 'artist-credit':[{'name':'Pessoa'}],
+                 'relations':[{'target-type':'artist','type':'producer','artist':{'name':'Produtor'}}],
+                 'media':[{'position':1,'track-count':2,'tracks':[
+                     {'title':'Música','number':'1','recording':{'relations':[
+                         {'target-type':'artist','type':'vocal','attributes':['backing vocals'],
+                          'artist':{'name':'Cantora'}}]}},
+                     {'title':'Outra','number':'2','recording':{'relations':[
+                         {'target-type':'artist','type':'vocal','artist':{'name':'Pessoa de outra música'}}]}}]}]}
+        with patch.object(musicbrainz, '_get', return_value=dados) as get:
+            resultado = musicbrainz.detalhes_release('id','Música')
+        self.assertEqual(resultado['creditos_album'], ['Produtor — produção'])
+        self.assertEqual(resultado['creditos_faixa'], ['Cantora — backing vocals'])
+        self.assertIn('recording-level-rels', get.call_args.args[0])
+
     def test_falha_de_catalogos_preserva_vazio_e_nome_do_canal(self):
         self.rev['dados_atuais'].update(titulo='Michael Jackson - Chicago', artista='Canal Music')
         with patch.object(revisao.album_original, 'encontrar', side_effect=TimeoutError), \
@@ -126,6 +164,8 @@ class RevisaoEditor(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.itunes_padrao = patch.object(revisao.itunes, 'melhor_faixa', return_value=None)
+        self.itunes_padrao.start(); self.addCleanup(self.itunes_padrao.stop)
         self.cfg = Config(Path(self.tmp.name)/'config.json'); self.cfg.dados['ia_ativa'] = True
         self.banco = Banco(Path(self.tmp.name)/'banco.db')
         self.fila = GerenciadorFila(self.cfg, self.banco)
@@ -167,6 +207,57 @@ class RevisaoEditor(unittest.TestCase):
         self.assertEqual(self.dlg.campos['album'].text(), 'Meu álbum')
         self.assertEqual(self.dlg.campos['titulo'].text(), 'Canção (4K)')
         self.assertIn('indisponíveis', self.dlg.lbl_revisao_ia.text())
+
+    def test_fluxo_total_eclipse_preenche_campos_e_mostra_creditos(self):
+        self.dlg.campos['titulo'].setText('Total Eclipse of the Heart')
+        self.dlg.campos['artista'].setText('Bonnie Tyler')
+        mb = {'titulo':'Total Eclipse of the Heart', 'artista':'Bonnie Tyler',
+              'album':'Faster Than the Speed of Night', 'ano':1983,
+              'creditos_faixa':['Rory Dodd — backing vocals', 'Jim Steinman — produção']}
+        it = dict(mb, faixa=4, genero='Rock', artista_album='Bonnie Tyler')
+        ia = ident(titulo='Total Eclipse of the Heart', artista='Bonnie Tyler',
+                   album='Faster Than the Speed of Night', ano=1983, faixa=4,
+                   genero='Power ballad', creditos_album=['Roy Bittan — piano'])
+        def executar(fn,*args,**kwargs):
+            kwargs['ao_resultado'](fn(*args,revisao=kwargs['revisao']))
+        self.mock.stop()
+        with patch.object(downloads_page.EXECUTOR_GLOBAL,'rodar',side_effect=executar), \
+             patch.object(revisao.album_original, 'encontrar',return_value=mb), \
+             patch.object(revisao.itunes, 'melhor_faixa',return_value=it), \
+             patch.object(identificador, 'identificar',return_value=ia):
+            self.dlg.btn_rever_ia.click()
+        for chave, valor in [('titulo','Total Eclipse of the Heart'), ('artista','Bonnie Tyler'),
+                              ('album','Faster Than the Speed of Night'), ('ano','1983'),
+                              ('faixa','4'), ('genero','Rock')]:
+            self.assertEqual(self.dlg.campos[chave].text(), valor)
+        self.assertIn('Roy Bittan — piano', self.dlg.lbl_resumo_revisao.text())
+        self.assertIn('Rory Dodd — backing vocals', self.dlg.lbl_resumo_revisao.text())
+        self.assertIn('sugestão da IA', self.dlg.lbl_resumo_revisao.text())
+        self.assertIn('MusicBrainz + iTunes', self.dlg.lbl_revisao_ia.text())
+        self.assertEqual(self.dlg.campos['artistas_participantes'].text(), '')
+
+    def test_resultado_organizado_e_creditos_nao_viram_artistas_da_faixa(self):
+        ia = ident(album='Disco', genero='Power ballad', ano=2001, faixa=3,
+                   creditos_album=['Músico — piano', 'Produtor — produção'])
+        cat = catalogo(creditos_album=['Pessoa — vocais'], creditos_faixa=['Cantora — backing vocals'])
+        self.responder(self.pedir(), ia, cat)
+        resumo = self.dlg.lbl_resumo_revisao.text()
+        self.assertIn('Música: Canção', resumo); self.assertIn('Álbum: Disco', resumo)
+        self.assertIn('Ano: 2001 · Faixa: 3', resumo)
+        self.assertIn('Músico — piano', resumo); self.assertIn('sugestão da IA', resumo)
+        self.assertIn('Créditos do álbum no MusicBrainz', resumo)
+        self.assertIn('Créditos da faixa no MusicBrainz', resumo)
+        self.assertEqual(self.dlg.campos['artistas_participantes'].text(), '')
+        self.assertEqual(self.dlg.campos['genero'].text(), 'Power ballad')
+        self.assertIn('Gênero é sugestão da IA', self.dlg.lbl_revisao_ia.text())
+
+    def test_sem_catalogo_exibe_sugestao_marcada_sem_alterar_campos(self):
+        ia = ident(album='Disco', ano=2001, faixa=3, creditos_album=['Pessoa — piano'])
+        self.responder(self.pedir(), ia, {})
+        self.assertIn('não é pesquisa nem confirmação', self.dlg.lbl_resumo_revisao.text())
+        self.assertIn('Pessoa — piano', self.dlg.lbl_resumo_revisao.text())
+        self.assertEqual(self.dlg.campos['album'].text(), '')
+        self.assertEqual(self.dlg.campos['faixa'].text(), '')
 
     def test_album_incompleto_nao_mistura_e_nao_apaga(self):
         self.dlg.campos['album'].setText('Antigo'); self.dlg.campos['ano'].setText('1990')

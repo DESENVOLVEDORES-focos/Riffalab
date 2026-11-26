@@ -223,6 +223,7 @@ class Identificacao:
     titulo: str = ""
     artista: str = ""
     artistas_participantes: List[str] = field(default_factory=list)
+    creditos_album: List[str] = field(default_factory=list)  # sugestão informativa, não é tag de participação
     banda: str = ""
     artista_album: str = ""            # crédito do álbum, que pode diferir da banda
     compositores: List[str] = field(default_factory=list)

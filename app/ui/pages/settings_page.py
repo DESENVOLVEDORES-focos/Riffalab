@@ -327,7 +327,8 @@ class SettingsPage(QWidget):
 
         aviso = QLabel("Segurança — o conteúdo do cookies.txt é tratado como informação sensível: "
                        "não aparece na interface e não deve ser compartilhado. "
-                       "O yt-dlp pode usá-lo ao acessar os serviços de origem, inclusive na pesquisa.")
+                       "O yt-dlp usa uma cópia temporária ao acessar os serviços de origem; "
+                       "o arquivo selecionado é preservado. A sessão ainda pode expirar.")
         aviso.setWordWrap(True)
         aviso.setProperty("papel_tema", "fraco")
         aviso.setStyleSheet("font-size: 11px;")
@@ -392,6 +393,7 @@ class SettingsPage(QWidget):
 
         self.chk_ia = QCheckBox("Identificar cada música com IA antes de definir capa e metadados")
         self.chk_ia.setChecked(bool(self.config.get("ia_ativa")))
+        self.chk_ia.toggled.connect(self._alterar_ia_ativa)
         self.chk_ia.setToolTip(
             "A IA recebe apenas: título do vídeo, canal, URL, duração e sugestões da busca.\n"
             "Cookies, credenciais do YouTube e arquivos NUNCA são enviados.")
@@ -468,29 +470,38 @@ class SettingsPage(QWidget):
 
         self._atualizar_ia()
 
+    def _alterar_ia_ativa(self, ativa: bool) -> None:
+        # O botão de chave e o controle da IA têm efeitos persistentes
+        # imediatos; não dependem de "Salvar configurações" em outro lugar.
+        self.config.update(ia_ativa=bool(ativa))
+        if hasattr(self, 'chip_ia'):
+            self._atualizar_ia()
+
     def _atualizar_ia(self) -> None:
         if hasattr(self, "lbl_chave_onde"):
             self.lbl_chave_onde.setText(seguranca.caminho_legivel())
+        chave = seguranca.ler()
         origem = seguranca.origem()
-        if origem:
-            self.chip_ia.setText("chave ok")
+        if chave:
+            self.chip_ia.setText("chave carregada")
             self.chip_ia.setStyleSheet(
                 f"color: {PALETA['lima']}; background: {alfa(PALETA['lima'], '1A')};"
                 f"border: 1px solid {alfa(PALETA['lima'], '55')}; border-radius: 8px;"
                 f"padding: 2px 9px; font-size: 11px; font-weight: 700;")
             self.lbl_ia.setText(
-                f"Chave configurada ({seguranca.mascarar()}) — origem: {origem}. "
-                f"A identificação está {'ligada' if self.config.get('ia_ativa') else 'desligada'}.")
+                f"Chave carregada ({seguranca.mascarar(chave)}) — origem: {origem}. "
+                f"A identificação está {'ligada' if self.config.get('ia_ativa') else 'desligada'}. "
+                "Carregar não confirma acesso à Groq; use Testar conexão.")
         else:
-            self.chip_ia.setText("sem chave")
+            self.chip_ia.setText("chave inacessível" if origem else "sem chave")
             self.chip_ia.setStyleSheet(
                 f"color: {PALETA['amarelo']}; background: {alfa(PALETA['amarelo'], '1A')};"
                 f"border: 1px solid {alfa(PALETA['amarelo'], '55')}; border-radius: 8px;"
                 f"padding: 2px 9px; font-size: 11px; font-weight: 700;")
             self.lbl_ia.setText(
-                "Nenhuma chave configurada. Sem ela o app continua funcionando com "
-                "iTunes + MusicBrainz, mas sem a identificação por IA. "
-                "Cole a chave acima ou crie api.txt na pasta do app.")
+                "Não foi possível ler a chave salva. Verifique o usuário do Windows e as permissões; "
+                "se necessário, salve-a novamente." if origem else
+                "Nenhuma chave configurada. Cole a chave acima ou crie api.txt na pasta do app.")
 
     def _salvar_chave(self) -> None:
         chave = self.campo_chave.text().strip()
@@ -498,7 +509,14 @@ class SettingsPage(QWidget):
             self.mensagem.emit("Cole a chave antes de salvar.")
             return
         ok, msg = seguranca.guardar(chave)
-        self.campo_chave.clear()
+        if ok:
+            self.campo_chave.clear()
+            if not self.chk_ia.isChecked():
+                self.chk_ia.setChecked(True)
+            elif not self.config.get('ia_ativa'):
+                self._alterar_ia_ativa(True)
+            if seguranca.origem().startswith('variável de ambiente'):
+                msg += ' Atenção: a variável GROQ_API_KEY tem prioridade sobre a chave salva.'
         self.mensagem.emit(("Chave salva: " if ok else "") + msg)
         self._atualizar_ia()
 

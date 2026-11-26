@@ -1,3 +1,5 @@
+> **Versão 0.11.4:** revisão de metadados mais completa, créditos identificados por origem e proteção do arquivo de cookies durante o uso. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
+
 > **Versão 0.11.3:** a capa escolhida é mantida ao editar os dados; se a identidade mudar, você pode revisar e confirmar a mesma imagem. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
 
 > **Versão 0.11.2:** a nova sugestão confere título e artista juntos em catálogos antes de propor um álbum; dados não encontrados são preservados. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
@@ -202,10 +204,10 @@ não o "Grok" da xAI). É opcional: desligado, tudo funciona exatamente como ant
 
 Pontos práticos da Groq: a conta é gratuita em `console.groq.com`, a chave
 começa com **`gsk_`** e o plano gratuito tem limite de requisições/tokens por
-minuto (por isso o app faz **uma** chamada por música e respeita o
+minuto (o app tenta de novo em falhas de formato e respeita o
 `retry-after` quando a Groq pede para esperar). Modelo padrão:
 **`openai/gpt-oss-120b`** — é o que aceita *Structured Outputs* com `strict`,
-garantindo o JSON no formato exato; outros modelos aparecem em **Testar
+que pode usar saída estruturada; outros modelos aparecem em **Testar
 conexão** e podem ser escolhidos no campo **Modelo**.
 
 **Jeito mais fácil: um arquivo `api.txt` na pasta do app**
@@ -219,7 +221,7 @@ conexão** e podem ser escolhidos no campo **Modelo**.
    ```
 
 3. Salve. Pronto — o app lê sozinho. Em **Configurações → Identificação com IA**
-   aparece `chave ok` e o caminho do arquivo. Se preferir, clique em
+   aparece `chave carregada` e o caminho do arquivo. Isso não confirma acesso: use **Testar conexão**. Se preferir, clique em
    **Criar/abrir api.txt**: o app cria o arquivo (com as instruções dentro) e
    abre no Bloco de Notas para você colar a chave.
 
@@ -240,9 +242,8 @@ conexão** e podem ser escolhidos no campo **Modelo**.
    **Salvar chave**.
 3. Confira o modelo (`openai/gpt-oss-120b` já vem preenchido; pode trocar) e clique em
    **Testar conexão** — deve aparecer “Conexão OK (…s, N modelos)” e o selo
-   `chave ok`.
-4. Marque **“Identificar cada música com IA antes de definir capa e metadados”**
-   e clique em **Salvar configurações**.
+   `chave carregada` (isso apenas confirma a leitura local).
+4. Salvar a chave liga a IA e grava essa escolha imediatamente. Você pode desmarcá-la depois; a chave permanece salva.
 
 ![Configurações](docs/tela-configuracoes.png)
 
@@ -277,10 +278,9 @@ conexão** e podem ser escolhidos no campo **Modelo**.
 * Em **Configurações → cookies.txt**, clique em **Escolher cookies.txt** e selecione o arquivo no formato Netscape. Você também pode colocá-lo em `RiffLab\cookies.txt`.
 * O app verifica se existe, se está legível, se tem conteúdo e se o formato é
   válido — e mostra o resultado em **Configurações**.
-* **O conteúdo nunca aparece na tela, nunca vai para o log e nunca é enviado a
-  terceiros.** Só é repassado ao `yt-dlp` (por caminho) na hora de baixar.
+* O conteúdo não é mostrado nem registrado pelo app. O yt-dlp usa **cópias temporárias** na pesquisa e no download e pode enviar cookies ao site de origem para autenticação. O arquivo selecionado é preservado; a sessão ainda pode expirar ou ser recusada.
 * **Sem o arquivo a pesquisa continua funcionando.** Alguns vídeos podem pedir
-  cookies (verificação de idade, região, conteúdo privado); nesses casos o app
+  cookies (verificação de idade, região, conteúdo privado); se você escolheu um arquivo e ele sumiu, o app informa em vez de ignorá-lo. Nesses casos o app
   mostra o erro do `yt-dlp` no Histórico, sem quebrar a fila.
 * Veja `cookies.txt.exemplo` para o formato.
 

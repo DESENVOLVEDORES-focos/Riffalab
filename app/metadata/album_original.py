@@ -97,9 +97,9 @@ def encontrar(titulo: str, artista: str) -> Dict[str, Any]:
     retorno = {'album': nome, 'ano': ano, 'fonte': 'musicbrainz', 'release_group': g['release_group'],
                'titulo': limpar_titulo_tags(g.get('titulo') or titulo),
                'artista': g.get('artista') or artista}
-    if (det.get('faixa') and det.get('ano') == ano
-            and normalizar(det.get('album') or '') == normalizar(nome)):
-        for k in ('faixa', 'total_faixas', 'disco', 'artista_album', 'genero'):
+    if (det.get('ano') == ano and normalizar(det.get('album') or '') == normalizar(nome)):
+        for k in ('faixa', 'total_faixas', 'disco', 'artista_album', 'genero',
+                  'creditos_album', 'creditos_faixa'):
             if det.get(k):
                 retorno[k] = det[k]
     return retorno

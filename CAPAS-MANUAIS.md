@@ -1,4 +1,4 @@
-# RiffLab 0.11.5 — identificação automática e capa manual
+# RiffLab 0.11.6 — identificação automática e capa manual
 
 A pesquisa de capas é manual: a janela **não abre o Google automaticamente** e não consulta serviços de capas. A IA opcional e os catálogos de metadados são independentes da escolha da imagem.
 
@@ -7,6 +7,14 @@ A pesquisa de capas é manual: a janela **não abre o Google automaticamente** e
 Ao enviar músicas da pesquisa para Downloads, a seleção é salva antes de começar. Em segundo plano, a IA tenta identificar música e artista a partir do título original do vídeo. Em seguida, quando houver identidade suficiente, outra chamada usa título e artista para obter os demais dados, enquanto MusicBrainz e iTunes são consultados separadamente. O contador mostra quantas músicas ainda estão sendo identificadas; cada uma só aparece na lista quando essa etapa termina. Não é necessário abrir **Editar dados** para fazer as consultas. Se fechar durante a identificação, as músicas pendentes serão retomadas ao abrir novamente.
 
 Álbum, ano e número da faixa são aproveitados do catálogo quando há correspondência compatível. A tela mostra os dados obtidos, eventuais créditos de catálogo e sugestões da IA separadas como não confirmadas. A IA não ouve o áudio nem pesquisa na internet: mesmo resultados bem avaliados podem estar errados ou incompletos. Se a IA estiver desativada, indisponível ou incerta, os dados de origem são preservados com aviso; campos sem confirmação podem ficar vazios. Se precisar corrigir algo, use **Editar dados**. Nenhuma música é baixada durante a identificação.
+
+## Formatos em Downloads
+
+A pesquisa não consulta mais a qualidade dos vídeos nem lista os formatos de cada resultado. Isso evita disparar verificações para todos os vídeos encontrados, inclusive nas pesquisas múltiplas e nos resultados filtrados. A ordem de pesquisa é por relevância, não por qualidade.
+
+Depois que uma música aparecer em **Downloads**, clique em **Verificar formatos** nessa música se quiser consultar suas opções. A consulta ocorre em segundo plano, uma música por vez. Quando terminar, clique em **Comparar formatos** e escolha o formato desejado. A escolha é salva e não altera os dados ou a capa. Se a consulta falhar, a escolha anterior é mantida e você pode tentar novamente. **Áudio automático** volta à escolha automática.
+
+A verificação é opcional. Sem selecionar um formato, o yt-dlp escolhe o melhor áudio disponível ao iniciar o download; o formato exato só será conhecido nesse momento. Os valores exibidos são informados pelas fontes, podem ser estimados e não comprovam a qualidade sonora. Uma escolha manual pode deixar de estar disponível na plataforma; nesse caso o aplicativo informa a falha em vez de trocar silenciosamente de formato.
 
 ## Escolher a capa
 

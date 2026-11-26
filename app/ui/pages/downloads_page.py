@@ -16,12 +16,13 @@ from ... import estado_musicas
 from ...config import Config
 from ...downloader import GerenciadorFila
 from ...logging_setup import registrar_erro, texto_seguro
-from ...models import CoverResult, hhmmss
+from ...models import AudioFormat, CoverResult, hhmmss
 from ...preparacao import preparar_musica, preparar_previa, aplicar_edicao, identificar_antes_de_download
-from ...workers import EXECUTOR_GLOBAL
+from ...workers import EXECUTOR_GLOBAL, EXECUTOR_FORMATOS
 from ..dialogos import DialogoCapas
 from ..theme import PALETA, alfa
 from ..widgets.result_card import Chip
+from ..widgets.format_details import DialogoFormatos
 
 CORES_STATUS = {
     "na fila": PALETA["texto_dim"],
@@ -34,6 +35,21 @@ CORES_STATUS = {
     "erro": PALETA["vermelho"],
     "cancelado": PALETA["texto_fraco"],
 }
+
+
+def consultar_formatos_download(resultado, config):
+    """Consulta sob demanda uma cópia; não altera a seleção enquanto trabalha."""
+    from copy import deepcopy
+    from ...sources import por_id
+    copia = deepcopy(resultado)
+    fonte = por_id(copia.fonte, config)
+    if fonte is None:
+        raise ValueError('Fonte desconhecida para esta música.')
+    if copia.fonte == 'ytdlp':
+        copia.formatos = []
+        for chave in ('metodos_consulta', 'consulta_em_andamento', 'erro_detalhe'):
+            copia.extra.pop(chave, None)
+    return fonte.detalhar(copia)
 
 
 class LinhaJob(QFrame):
@@ -142,6 +158,9 @@ class LinhaSelecao(QFrame):
     remover = Signal(object)
     escolher_capa = Signal(object)
     editar = Signal(object)
+    verificar_formatos = Signal(object)
+    comparar_formatos = Signal(object)
+    formato_automatico = Signal(object)
 
     def __init__(self, pedido: dict, pai=None) -> None:
         super().__init__(pai)
@@ -149,6 +168,7 @@ class LinhaSelecao(QFrame):
         self.preparacao = None
         self.identificacao_pendente = False
         self.identificando_ativo = False
+        self.consultando_formatos = False
         self.setObjectName("cartao")
         layout = QHBoxLayout(self)
         self.check = QCheckBox()
@@ -169,7 +189,30 @@ class LinhaSelecao(QFrame):
         self.detalhes.setWordWrap(True)
         self.detalhes.setObjectName('dim')
         textos.addWidget(self.detalhes)
+        self.estado_formatos = QLabel('')
+        self.estado_formatos.setTextFormat(Qt.PlainText)
+        self.estado_formatos.setWordWrap(True)
+        self.estado_formatos.setObjectName('dim')
+        textos.addWidget(self.estado_formatos)
         layout.addLayout(textos, 1)
+        formatos_layout = QVBoxLayout()
+        formatos_layout.setSpacing(3)
+        self.btn_verificar_formatos = QPushButton('Verificar formatos')
+        self.btn_verificar_formatos.setObjectName('fantasma')
+        self.btn_verificar_formatos.setToolTip('Consultar formatos somente desta música, sem baixar áudio.')
+        self.btn_verificar_formatos.clicked.connect(lambda: self.verificar_formatos.emit(self))
+        formatos_layout.addWidget(self.btn_verificar_formatos)
+        self.btn_comparar_formatos = QPushButton('Comparar formatos')
+        self.btn_comparar_formatos.setObjectName('fantasma')
+        self.btn_comparar_formatos.clicked.connect(lambda: self.comparar_formatos.emit(self))
+        formatos_layout.addWidget(self.btn_comparar_formatos)
+        self.btn_formato_auto = QPushButton('Áudio automático')
+        self.btn_formato_auto.setObjectName('fantasma')
+        self.btn_formato_auto.setToolTip('Deixar o aplicativo escolher o áudio ao baixar.')
+        self.btn_formato_auto.clicked.connect(lambda: self.formato_automatico.emit(self))
+        formatos_layout.addWidget(self.btn_formato_auto)
+        layout.addLayout(formatos_layout)
+        self.atualizar_estado_formatos()
         self.btn_editar = QPushButton('Editar dados')
         self.btn_editar.setObjectName('fantasma')
         self.btn_editar.clicked.connect(lambda: self.editar.emit(self))
@@ -182,6 +225,17 @@ class LinhaSelecao(QFrame):
         self.btn_remover.setObjectName('fantasma')
         self.btn_remover.clicked.connect(lambda: self.remover.emit(self))
         layout.addWidget(self.btn_remover)
+
+    def atualizar_estado_formatos(self, mensagem: str = '') -> None:
+        fmt = self.pedido.get('formato')
+        auto = not fmt or fmt.format_id in ('', 'bestaudio')
+        texto = ('Áudio automático: formato definido ao baixar' if auto else
+                 f'Formato escolhido: {fmt.descricao_curta()} · ID {fmt.format_id}')
+        self.estado_formatos.setText(texto + ((' · ' + mensagem) if mensagem else ''))
+        self.btn_comparar_formatos.setEnabled(bool(self.pedido['resultado'].formatos) and not self.consultando_formatos)
+        self.btn_verificar_formatos.setEnabled(not self.consultando_formatos)
+        self.btn_verificar_formatos.setText('Consultando…' if self.consultando_formatos else 'Verificar formatos')
+        self.btn_formato_auto.setEnabled(not auto and not self.consultando_formatos)
 
     def definir_preparacao(self, preparacao: dict) -> None:
         self.preparacao = preparacao
@@ -475,6 +529,7 @@ class DownloadsPage(QWidget):
         self._geracao_preparacao = 0
         self._encerrando = False
         self._identificacoes_ativas = set()
+        self._formatos_ativos = set()
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(26, 22, 26, 16)
@@ -558,6 +613,9 @@ class DownloadsPage(QWidget):
         linha.remover.connect(self._remover_selecao)
         linha.escolher_capa.connect(self._preparar_uma)
         linha.editar.connect(self._editar_dados)
+        linha.verificar_formatos.connect(self._verificar_formatos)
+        linha.comparar_formatos.connect(self._comparar_formatos)
+        linha.formato_automatico.connect(self._formato_automatico)
         self.selecoes.append(linha)
         # Itens pendentes aparecem antes dos downloads já iniciados.
         self.lista.insertWidget(len(self.selecoes) - 1, linha)
@@ -611,6 +669,77 @@ class DownloadsPage(QWidget):
                     ao_erro=lambda erro, f=finalizar: f(erro=erro))
             except Exception as exc:
                 finalizar(erro=str(exc))
+
+    def _verificar_formatos(self, linha: LinhaSelecao) -> None:
+        if self._encerrando or self._preparando or linha not in self.selecoes or linha.consultando_formatos:
+            return
+        if self._formatos_ativos:
+            self.mensagem.emit('Aguarde a consulta de formatos atual antes de iniciar outra.')
+            return
+        linha.consultando_formatos = True
+        self._formatos_ativos.add(linha)
+        linha.atualizar_estado_formatos('consultando apenas esta música…')
+        self._atualizar_resumo()
+
+        def finalizar(resultado=None, erro=''):
+            self._formatos_ativos.discard(linha)
+            if self._encerrando or linha not in self.selecoes:
+                return
+            linha.consultando_formatos = False
+            if resultado is not None and resultado.formatos:
+                atual = linha.pedido['resultado']
+                atual.formatos = resultado.formatos
+                atual.extra.pop('consulta_em_andamento', None)
+                for chave in ('metodos_consulta', 'erro_detalhe'):
+                    if chave in resultado.extra:
+                        atual.extra[chave] = resultado.extra[chave]
+                    else:
+                        atual.extra.pop(chave, None)
+                aviso = f'{len(resultado.formatos)} formato(s) encontrado(s). Clique em Comparar formatos.'
+                escolhido = linha.pedido.get('formato')
+                if (escolhido and escolhido.format_id not in ('', 'bestaudio') and
+                        not any(f.format_id == escolhido.format_id for f in resultado.formatos)):
+                    aviso += ' A escolha anterior não apareceu; ela foi mantida.'
+                linha.atualizar_estado_formatos(aviso)
+                self._selecao_alterada()
+            else:
+                motivo = (resultado.extra.get('erro_detalhe') if resultado is not None else erro) or 'Nenhum formato disponível.'
+                linha.atualizar_estado_formatos('Consulta falhou: ' + texto_seguro(str(motivo))[:220] +
+                                                 ' A escolha anterior foi mantida; tente novamente.')
+                self._atualizar_resumo()
+        try:
+            EXECUTOR_FORMATOS.rodar(consultar_formatos_download, linha.pedido['resultado'], self.config,
+                ao_resultado=finalizar, ao_erro=lambda erro: finalizar(erro=erro))
+        except Exception as exc:
+            finalizar(erro=str(exc))
+
+    def _comparar_formatos(self, linha: LinhaSelecao) -> None:
+        if self._preparando or linha.consultando_formatos or linha not in self.selecoes:
+            return
+        dialogo = DialogoFormatos(linha.pedido['resultado'], linha.pedido.get('formato'), self)
+        if dialogo.exec() != QDialog.Accepted or linha not in self.selecoes:
+            return
+        formato = dialogo.formato_selecionado()
+        if formato is not None:
+            linha.pedido['formato'] = formato
+            linha.atualizar_estado_formatos()
+            if linha.preparacao:
+                linha.definir_preparacao(linha.preparacao)
+            else:
+                linha.detalhes.setText(f'{formato.descricao_curta()} · capa ainda não escolhida')
+                self._selecao_alterada()
+
+    def _formato_automatico(self, linha: LinhaSelecao) -> None:
+        if self._preparando or linha.consultando_formatos or linha not in self.selecoes:
+            return
+        linha.pedido['formato'] = (AudioFormat(codec='?', format_id='bestaudio', estimado=True)
+                                    if linha.pedido['resultado'].fonte == 'ytdlp' else None)
+        linha.atualizar_estado_formatos()
+        if linha.preparacao:
+            linha.definir_preparacao(linha.preparacao)
+        else:
+            linha.detalhes.setText('Melhor áudio disponível · capa ainda não escolhida')
+            self._selecao_alterada()
 
     def _remover_selecao(self, linha: LinhaSelecao) -> None:
         if self._preparando or linha not in self.selecoes:
@@ -854,6 +983,9 @@ class DownloadsPage(QWidget):
         selecionadas = [l for l in self.selecoes if l.check.isChecked() and not l.identificacao_pendente]
         if not selecionadas or self._preparando:
             return
+        if any(l.consultando_formatos for l in selecionadas):
+            self.mensagem.emit('Aguarde a consulta de formatos antes de baixar.')
+            return
         if any(l.identificacao_pendente or l.preparacao is None or l.preparacao.get('revisao_pendente')
                or l.preparacao.get('capa_pendente') for l in selecionadas):
             self.mensagem.emit('Escolha ou revise as capas de todas as músicas selecionadas primeiro.')
@@ -922,7 +1054,8 @@ class DownloadsPage(QWidget):
                      for l in escolhidas)
         self.btn_preparar.setEnabled(bool(escolhidas) and not self._preparando)
         self.btn_sem_capa.setEnabled(bool(escolhidas) and not self._preparando)
-        self.btn_baixar.setEnabled(bool(escolhidas) and not faltam and not self._preparando)
+        self.btn_baixar.setEnabled(bool(escolhidas) and not faltam and not self._preparando
+                                   and not any(l.consultando_formatos for l in escolhidas))
         self.btn_baixar.setText(f'Baixar selecionadas ({len(escolhidas)})')
         for linha in self.selecoes:
             linha.setEnabled(not self._preparando)

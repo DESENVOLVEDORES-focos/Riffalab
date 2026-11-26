@@ -257,10 +257,10 @@ class MainWindow(QMainWindow):
             self.toast._posicionar()
 
     def closeEvent(self, evento) -> None:             # noqa: N802
-        if self.fila.pendentes or self.pagina_downloads._preparando or self.pagina_downloads._identificacoes_ativas:
+        if self.fila.pendentes or self.pagina_downloads._preparando or self.pagina_downloads._identificacoes_ativas or self.pagina_downloads._formatos_ativos:
             resposta = QMessageBox.warning(
                 self, 'Processamento em andamento',
-                'Há músicas na fila, identificação em andamento ou capas sendo pesquisadas. '
+                'Há músicas na fila ou consultas de identificação, formatos ou capas em andamento. '
                 'Identificações pendentes serão retomadas ao abrir novamente; downloads em andamento ou aguardando não. Deseja fechar mesmo assim?',
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if resposta != QMessageBox.Yes:

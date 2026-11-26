@@ -97,7 +97,7 @@ class SearchPage(QWidget):
         titulos.setSpacing(2)
         t = QLabel("Pesquisa de várias músicas" if modo == 'varias' else "Pesquisa normal")
         t.setObjectName("titulo")
-        self.lbl_descricao = QLabel("Compare formatos, escolha as músicas e prepare o MP3 com ou sem capa.")
+        self.lbl_descricao = QLabel("Escolha as músicas; verifique os formatos depois, em Downloads.")
         self.lbl_descricao.setObjectName("subtitulo")
         titulos.addWidget(t)
         titulos.addWidget(self.lbl_descricao)
@@ -211,7 +211,6 @@ class SearchPage(QWidget):
         filtros.addWidget(rotulo2)
         self.ordem = QComboBox()
         self.ordem.addItem("Relevância", "relevancia")
-        self.ordem.addItem("Melhor qualidade", "qualidade")
         self.ordem.setFixedWidth(180)
         filtros.addWidget(self.ordem)
         corpo.addWidget(self.painel_filtros)
@@ -339,7 +338,7 @@ class SearchPage(QWidget):
         return (f"<div style='line-height:1.9'><b style='font-size:15px'>Nenhum resultado ainda</b><br>"
                 f"Experimente: <span style='color:{PALETA['ciano']}'>{exemplos}</span><br>"
                 f"<span style='font-size:11px'>A pesquisa usa as fontes marcadas acima. "
-                f"Os formatos de cada resultado são verificados automaticamente.</span></div>")
+                f"Os formatos podem ser verificados depois em Downloads.</span></div>")
 
     # ------------------------------------------------------------------ busca
     def _aba_busca_mudou(self, indice: int) -> None:
@@ -503,7 +502,6 @@ class SearchPage(QWidget):
         self.btn_melhores.setEnabled(bool(self.cards))
         self._atualizar_lote()
         self._avisar_filtrados()
-        self._agendar_verificacoes()
         self._conferir_baixados(resultados + self.filtrados)
 
     def _iniciar_grupos_parciais(self, consultas: list[str]) -> None:
@@ -575,9 +573,6 @@ class SearchPage(QWidget):
         self._status_base = f"{feitos}/{len(self._grupos_busca)} pesquisas concluídas · {len(self.cards)} resultado(s)"
         self.status.setText(self._status_base)
         self._atualizar_lote()
-        self._fila_verif.extend(c for c in novos if self._precisa_verificar(c.resultado))
-        self._ordenar_fila_por_grupo()
-        self._verificar_proximo()
 
     def _ordenar_fila_por_grupo(self) -> None:
         # Em várias pesquisas, não deixar todos os resultados da primeira
@@ -661,7 +656,6 @@ class SearchPage(QWidget):
         self._escolha_manual = False
         self._atualizar_lote()
         self._avisar_filtrados()
-        self._agendar_verificacoes()
         if todos:
             self._conferir_baixados(todos)
 
@@ -767,9 +761,6 @@ class SearchPage(QWidget):
         self.mensagem.emit("Resultados filtrados exibidos — confira o aviso de ao vivo "
                            "antes de marcar qualquer um deles.")
         self._atualizar_lote()
-        # Os resultados filtrados também recebem as quatro consultas quando exibidos.
-        self._fila_verif.extend(c for c in self._cards_filtrados if self._precisa_verificar(c.resultado))
-        self._verificar_proximo()
 
     # ---------------------------------------------------------- pré-visualização
     def _abrir_previa(self, dados: dict) -> None:
@@ -1117,7 +1108,11 @@ class SearchPage(QWidget):
         chave = self._chave_resultado(resultado)
         pedido = self._marcados.get(chave)
         r = pedido['resultado'] if pedido else resultado
-        card = ResultCard(r, self.carregador, ao_detalhar=self._detalhar)
+        card = ResultCard(r, self.carregador, ao_detalhar=None)
+        for widget in (card.combo, card.btn_verificar, card.btn_formatos,
+                       card.lbl_metodos_qualidade, card.lbl_origem_formato,
+                       card.lbl_erro_qualidade, card._barra):
+            widget.hide()
         card._resultado_inicial_baixados = resultado
         card.processar.connect(self._processar_um)
         card.selecionado.connect(lambda marcado, c=card: self._selecao_mudou(c, marcado))
@@ -1137,7 +1132,9 @@ class SearchPage(QWidget):
     def _selecao_mudou(self, card: ResultCard, marcado: bool) -> None:
         chave = self._chave_resultado(card.resultado)
         if marcado:
-            self._marcados[chave] = {'resultado': card.resultado, 'formato': card.combo.currentData()}
+            formato = (card._formato_padrao() if card.resultado.fonte == 'ytdlp' and card.combo.currentIndex() == 0
+                       else card.combo.currentData())
+            self._marcados[chave] = {'resultado': card.resultado, 'formato': formato}
         else:
             self._marcados.pop(chave, None)
         for outro in self.cards:
@@ -1146,10 +1143,7 @@ class SearchPage(QWidget):
                 outro.check.setChecked(marcado)
                 outro.check.blockSignals(False)
         self._atualizar_lote()
-        if marcado:
-            self._formato_mudou(card)
-        else:
-            self._gravar_marcacoes()
+        self._gravar_marcacoes()
 
     def _formato_mudou(self, card: ResultCard) -> None:
         chave = self._chave_resultado(card.resultado)
@@ -1305,9 +1299,14 @@ class SearchPage(QWidget):
         resultado = dados.get("resultado")
         if resultado is None:
             return
+        chave = self._chave_resultado(resultado)
+        if chave in self._marcados:
+            dados = dict(self._marcados[chave])
+        elif resultado.fonte == 'ytdlp':
+            from ...models import AudioFormat
+            dados = dict(dados, formato=AudioFormat(format_id='bestaudio', codec='?', estimado=True))
         if not self._transferir(dados):
             return
-        chave = self._chave_resultado(resultado)
         self._marcados.pop(chave, None)
         self._gravar_marcacoes()
         for card in self.cards:

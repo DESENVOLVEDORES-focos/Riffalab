@@ -916,18 +916,9 @@ class SettingsPage(QWidget):
             "correspondência, e pode trocar ou recusar a capa.")
         c.layout_.addWidget(self.chk_confirmar_capa)
 
-        linha = QHBoxLayout()
-        rot = QLabel("Verificar qualidade automaticamente em")
-        rot.setStyleSheet("font-weight: 600;")
-        linha.addWidget(rot)
-        self.spin_verificar = QSpinBox()
-        self.spin_verificar.setRange(0, 30)
-        self.spin_verificar.setValue(int(self.config.get("verificar_automatico") or 10))
-        self.spin_verificar.setSuffix(" resultado(s)")
-        self.spin_verificar.setToolTip("0 = só quando você clicar em “Verificar qualidade”")
-        linha.addWidget(self.spin_verificar)
-        linha.addStretch(1)
-        c.layout_.addLayout(linha)
+        aviso_formatos = QLabel("A pesquisa não verifica formatos. Em Downloads você pode verificá-los quando quiser.")
+        aviso_formatos.setWordWrap(True)
+        c.layout_.addWidget(aviso_formatos)
 
     # =============================================================== fontes
     def _cartao_fontes(self) -> None:
@@ -1048,7 +1039,6 @@ class SettingsPage(QWidget):
         self.chk_confirmar_processar.setChecked(
             bool(self.config.get("confirmar_antes_processar", True)))
         self.chk_confirmar_capa.setChecked(bool(self.config.get("confirmar_capa", True)))
-        self.spin_verificar.setValue(int(self.config.get("verificar_automatico") or 10))
         self.chk_baixar_capa.setChecked(bool(self.config.get("baixar_capa", True)))
         self.chk_incorporar_capa.setChecked(bool(self.config.get("incorporar_capa", True)))
         self._modo_mudou()

@@ -281,7 +281,7 @@ class ResultCard(QFrame):
                 chip.setToolTip(erro)
                 self._selos.addWidget(chip)
             else:
-                self._selos.addWidget(Chip("verificando qualidade…", PALETA["amarelo"]))
+                self._selos.addWidget(Chip("formatos não verificados", PALETA["amarelo"]))
         # ---- sinais de "ao vivo" (proposta §2.3): aviso, nunca silêncio ----
         if self.resultado.ao_vivo:
             confirmado = self.resultado.ao_vivo_certeza == "confirmado"

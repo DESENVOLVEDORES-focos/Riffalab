@@ -21,7 +21,7 @@ from typing import Any, Dict
 
 APP_NOME = "RiffLab"
 APP_SUB = "pesquisa · qualidade · metadados"
-APP_VERSAO = "0.11.5"
+APP_VERSAO = "0.11.6"
 
 # ------------------------------------------------------------------ caminhos
 def _raiz() -> Path:
@@ -71,7 +71,7 @@ PADROES: Dict[str, Any] = {
     "limite_resultados": 20,
     # pesquisa visual (v0.5.0)
     "evitar_ao_vivo": True,            # filtro de shows/ao vivo ativado por padrão
-    "verificar_automatico": 10,        # quantos vídeos enriquecer/verificar na busca
+    "verificar_automatico": 0,         # legado: a interface não consulta formatos na pesquisa
     "mostrar_filtrados": False,        # o botão "Mostrar resultados filtrados"
     "confirmar_antes_processar": True, # etapa 5 do fluxo: confirmação
     "confirmar_capa": True,            # etapa 9: o usuário aprova a capa

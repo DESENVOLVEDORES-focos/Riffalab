@@ -29,7 +29,7 @@ def pesquisar(consulta: str, config: Config, limite: int = 20,
               fontes_ids: Optional[List[str]] = None,
               progresso: Progresso = None,
               ordenar_por: str = "relevancia",
-              enriquecer_automatico: bool = True) -> Dict[str, object]:
+              enriquecer_automatico: bool = False) -> Dict[str, object]:
     """Devolve {'resultados', 'fontes', 'erros', 'segundos', 'consulta'}."""
     consulta = (consulta or "").strip()
     inicio = time.time()
@@ -132,7 +132,7 @@ def pesquisar(consulta: str, config: Config, limite: int = 20,
     _emitir(progresso, 74, "separando shows e gravações ao vivo…")
     visiveis, filtrados = filtros.aplicar(lista, consulta, evitar_ao_vivo=evitar)
 
-    _emitir(progresso, 80, "ordenando por qualidade…")
+    _emitir(progresso, 80, "ordenando resultados…")
     if ordenar_por == "qualidade":
         visiveis.sort(key=lambda r: (pontuar(r.melhor) if r.melhor else -1,
                                      r.nota_musica), reverse=True)

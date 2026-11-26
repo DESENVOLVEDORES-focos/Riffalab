@@ -162,11 +162,22 @@ class Interface(unittest.TestCase):
                 self.assertFalse(busca._buscando)
                 self.assertEqual(len(busca.cards), 2)
                 self.assertFalse(busca._verif_ativas)
+                from app.ui.pages import downloads_page
                 for card in busca.cards:
-                    self.assertTrue(card.resultado.formatos, card.resultado.extra)
-                    self.assertTrue(card.combo.currentData().format_id)
-                    self.assertEqual(len(card.resultado.extra['metodos_consulta']), 4)
-                    self.assertTrue(any(m['estado'] == 'ok' for m in card.resultado.extra['metodos_consulta']))
+                    self.assertFalse(card.resultado.formatos)
+                    self.assertTrue(card.btn_verificar.isHidden())
+                pagina = self.janela.pagina_downloads
+                r = busca.cards[0].resultado
+                self.assertTrue(pagina.adicionar_selecao({'resultado': r}, identificar=False))
+                linha = pagina.selecoes[0]
+                linha.btn_verificar_formatos.click()
+                prazo = time.monotonic() + 25
+                while linha.consultando_formatos and time.monotonic() < prazo:
+                    self.app.processEvents(); time.sleep(.02)
+                self.assertFalse(linha.consultando_formatos)
+                self.assertTrue(linha.pedido['resultado'].formatos)
+                self.assertTrue(any(m['estado'] == 'ok' for m in linha.pedido['resultado'].extra['metodos_consulta']))
+
         finally:
             servidor.shutdown(); servidor.server_close(); thread.join(3)
 
@@ -277,9 +288,11 @@ class Interface(unittest.TestCase):
              patch.object(search_page.EXECUTOR_FORMATOS, 'rodar', side_effect=agendar), \
              patch.object(busca, '_conferir_baixados'):
             busca._mostrar(dados('antiga'))
+            busca._agendar_verificacoes()  # exercita o código legado explicitamente
             velho = busca.cards[0]
             antiga = tarefas.pop(0)
             busca._mostrar(dados('nova'))
+            busca._agendar_verificacoes()
             novo = busca.cards[0]
             nova = tarefas.pop(0)
             antiga[1].formatos = [AudioFormat(codec='opus', format_id='251')]
@@ -313,6 +326,7 @@ class Interface(unittest.TestCase):
             busca._mostrar(dados)
             busca._alternar_filtrados()
             velho = busca._cards_filtrados[0]
+            busca._agendar_verificacoes()
             busca._alternar_filtrados()
             busca._alternar_filtrados()
             novo = busca._cards_filtrados[0]
@@ -348,6 +362,7 @@ class Interface(unittest.TestCase):
             with patch.object(busca, '_fonte_de', return_value=Fonte()), patch.object(busca, '_conferir_baixados'):
                 busca._mostrar({'resultados':resultados, 'filtrados':[], 'consulta':'teste',
                                'fontes':[], 'segundos':0, 'erros':{}})
+                busca._agendar_verificacoes()  # sem agendamento automático na pesquisa
                 prazo = time.monotonic() + 4
                 while (len(primeiras) < 20 or not busca.cards[-1].resultado.formatos) and time.monotonic() < prazo:
                     self.app.processEvents(); time.sleep(.01)
@@ -432,6 +447,7 @@ class Interface(unittest.TestCase):
                  patch.object(busca, '_conferir_baixados'):
                 busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
                                'fontes':[], 'segundos':0, 'erros':{}})
+                busca._agendar_verificacoes()  # sem agendamento automático na pesquisa
                 card = busca.cards[0]
                 limite = time.monotonic() + 4
                 while not card.resultado.formatos and time.monotonic() < limite:
@@ -477,6 +493,7 @@ class Interface(unittest.TestCase):
                  patch.object(fonte, '_rodar', side_effect=rodar):
                 busca._mostrar({'resultados':[r], 'filtrados':[], 'consulta':'Música',
                                'fontes':[], 'segundos':0, 'erros':{}})
+                busca._agendar_verificacoes()  # sem agendamento automático na pesquisa
                 card = busca.cards[0]
                 limite = time.monotonic() + 4
                 while not card.resultado.formatos and time.monotonic() < limite:
@@ -536,8 +553,8 @@ class Interface(unittest.TestCase):
                                                          for j in range(3)], 'filtrados':[],
                          'fontes':[], 'segundos':0, 'erros':{}}
                 busca._receber_parcial(geracao, i, dados)
-        self.assertEqual([c.resultado.uid for c in busca._fila_verif],
-                         ['A0', 'B0', 'A1', 'B1', 'A2', 'B2'])
+        self.assertEqual(busca._fila_verif, [])
+        self.assertEqual(len(busca.cards), 6)
         busca._buscando = False
 
     def test_pesquisa_selecao_navegacao_capas_e_inicio(self):
@@ -554,7 +571,6 @@ class Interface(unittest.TestCase):
         busca = self.janela.pagina_busca
         downloads = self.janela.pagina_downloads
         busca.campo.setText('Artista')
-        busca.ordem.setCurrentIndex(1)
         rodadas = []
 
         def roda(fn, *args, **kwargs):
@@ -577,7 +593,7 @@ class Interface(unittest.TestCase):
             busca.btn_buscar.click()
             self.assertEqual(len(busca.cards), 2)
             chamada = rodadas[0][2]
-            self.assertEqual(chamada['ordenar_por'], 'qualidade')
+            self.assertEqual(chamada['ordenar_por'], 'relevancia')
             self.assertTrue(chamada['com_progresso'])
             busca.cards[0].check.setChecked(True)
             busca.cards[1].check.setChecked(True)
@@ -708,6 +724,108 @@ class Interface(unittest.TestCase):
                 busca.cards[0].btn_processar.click()
                 self.assertIn('já está', toast.call_args.args[0])
                 self.assertEqual(len(self.janela.pagina_downloads.selecoes), 1)
+
+    def test_pesquisas_e_filtrados_nunca_consultam_formatos_automaticamente(self):
+        from app.models import TrackResult
+        from app.ui.pages import search_page
+        self.cfg.update(verificar_automatico=30)
+        for pagina in (self.janela.pagina_busca, self.janela.pagina_varias):
+            with self.subTest(pagina=pagina.modo), \
+                 patch.object(search_page.EXECUTOR_FORMATOS, 'rodar') as formatos, \
+                 patch.object(pagina, '_conferir_baixados'):
+                dados = {'resultados': [TrackResult(str(i), 'ytdlp', 'Faixa', 'Artista') for i in range(20)],
+                         'filtrados': [TrackResult('ao-vivo', 'ytdlp', 'Live', 'Artista')],
+                         'consulta': 'Faixa', 'fontes': [], 'segundos': 0, 'erros': {}}
+                pagina._mostrar(dados)
+                pagina._alternar_filtrados()
+                formatos.assert_not_called()
+                self.assertFalse(pagina._fila_verif)
+                self.assertEqual(pagina.ordem.count(), 1)
+                self.assertTrue(all(c.btn_verificar.isHidden() and c.combo.isHidden() for c in pagina.cards))
+                pagina._limpar()
+                pagina._buscando = True
+                pagina._geracao_busca += 1
+                pagina._iniciar_grupos_parciais(['A', 'B'])
+                pagina._receber_parcial(pagina._geracao_busca, 0, dict(dados, consulta='A'))
+                pagina._receber_parcial(pagina._geracao_busca, 1, dict(dados, consulta='B'))
+                pagina._terminar_varias(pagina._geracao_busca, [dict(dados, consulta='A'), dict(dados, consulta='B')])
+                formatos.assert_not_called()
+                self.assertFalse(pagina._fila_verif)
+
+    def test_download_formatos_somente_por_clique_preservam_edicao_capa_e_selecao(self):
+        from copy import deepcopy
+        from app.models import AudioFormat, CoverResult, TrackMeta, TrackResult
+        from app.ui.pages import downloads_page
+        pagina = self.janela.pagina_downloads
+        r = TrackResult('video', 'ytdlp', 'Faixa', 'Artista')
+        escolha = AudioFormat(codec='aac', bitrate_kbps=128, format_id='140')
+        with patch.object(downloads_page.EXECUTOR_FORMATOS, 'rodar') as rodar:
+            self.assertTrue(pagina.adicionar_selecao({'resultado': r, 'formato': AudioFormat(format_id='bestaudio'),
+                                                     'edicao': {'titulo': 'Editado'}}, identificar=False))
+            linha = pagina.selecoes[0]
+            capa = CoverResult(observacao='sem capa')
+            prep = {'meta': TrackMeta(titulo='Editado', artista='Artista', album='Disco'), 'capa': capa,
+                    'capa_pendente': False, 'ident': None}
+            linha.definir_preparacao(prep)
+            rodar.assert_not_called()
+            linha.btn_verificar_formatos.click()
+            self.assertTrue(linha.consultando_formatos)
+            self.assertFalse(pagina.btn_baixar.isEnabled())
+            linha.btn_verificar_formatos.click()
+            self.assertEqual(rodar.call_count, 1)
+            chamada = rodar.call_args
+            resultado = deepcopy(r)
+            resultado.formatos = [escolha, AudioFormat(codec='opus', bitrate_kbps=160, format_id='251')]
+            chamada.kwargs['ao_resultado'](resultado)
+            self.assertFalse(linha.consultando_formatos)
+            self.assertEqual(linha.preparacao['meta'].album, 'Disco')
+            self.assertIs(linha.preparacao['capa'], capa)
+            self.assertEqual(linha.pedido['formato'].format_id, 'bestaudio')
+            self.assertTrue(linha.btn_comparar_formatos.isEnabled())
+            dialogo = Mock()
+            dialogo.exec.return_value = QDialog.Accepted
+            dialogo.formato_selecionado.return_value = escolha
+            with patch.object(downloads_page, 'DialogoFormatos', return_value=dialogo):
+                linha.btn_comparar_formatos.click()
+            self.assertEqual(linha.pedido['formato'].format_id, '140')
+            self.assertIn('ID 140', linha.estado_formatos.text())
+            salvo = self.banco.ler_estado('downloads_selecionados')[0]
+            self.assertEqual(salvo['pedido']['formato']['format_id'], '140')
+            self.assertEqual(salvo['pedido']['edicao']['titulo'], 'Editado')
+            self.assertEqual(salvo['preparacao']['meta']['album'], 'Disco')
+            # Reabertura mantém escolha; falha de consulta não a substitui.
+            outra = downloads_page.DownloadsPage(self.cfg, self.janela.fila)
+            restaurada = outra.selecoes[0]
+            self.assertEqual(restaurada.pedido['formato'].format_id, '140')
+            outra._verificar_formatos(restaurada)
+            rodar.call_args.kwargs['ao_erro']('sem rede')
+            self.assertEqual(restaurada.pedido['formato'].format_id, '140')
+            self.assertIn('sem rede', restaurada.estado_formatos.text())
+            outra._formato_automatico(restaurada)
+            self.assertEqual(restaurada.pedido['formato'].format_id, 'bestaudio')
+            outra._encerrando = True
+            outra.deleteLater()
+
+    def test_formato_limite_de_concorrencia_e_resultado_tardio_removido(self):
+        from app.models import TrackResult
+        from app.ui.pages import downloads_page
+        pagina = self.janela.pagina_downloads
+        tarefas = []
+        with patch.object(downloads_page.EXECUTOR_FORMATOS, 'rodar', side_effect=lambda *a, **k: tarefas.append(k)):
+            for i in range(2):
+                pagina.adicionar_selecao({'resultado': TrackResult(str(i), 'ytdlp', 'Faixa')})
+            primeiro, segundo = pagina.selecoes
+            pagina._verificar_formatos(primeiro)
+            pagina._verificar_formatos(segundo)
+            self.assertEqual(len(tarefas), 1)
+            self.assertFalse(segundo.consultando_formatos)
+            pagina._remover_selecao(primeiro)
+            tarefas[0]['ao_erro']('falha tardia')
+            pagina._verificar_formatos(segundo)
+            self.assertEqual(len(tarefas), 2)
+            tarefas[1]['ao_erro']('falha')
+            self.assertFalse(pagina._formatos_ativos)
+            self.assertIn('falha', segundo.estado_formatos.text())
 
     def test_identificacao_antes_de_exibir_persiste_limita_e_continua_apos_falha(self):
         from app.models import CoverResult, TrackMeta, TrackResult
@@ -1018,7 +1136,7 @@ class Interface(unittest.TestCase):
         busca._guardar_lista('Carro')
         outra = SearchPage(self.cfg, self.banco, self.janela.carregador)
         self.assertEqual(len(outra._marcados), 1)
-        self.assertEqual(next(iter(outra._marcados.values()))['formato'].format_id, '251')
+        self.assertEqual(next(iter(outra._marcados.values()))['formato'].format_id, 'bestaudio')
         outra._limpar_marcados()
         self.assertEqual(outra._carregar_lista('Carro'), 1)
         self.assertEqual(len(outra._marcados), 1)
@@ -1457,17 +1575,16 @@ class Interface(unittest.TestCase):
         dados = {'resultados':resultados, 'filtrados':[], 'consulta':'Música',
                  'fontes':['yt-dlp'], 'segundos':1, 'erros':{}}
         busca = self.janela.pagina_busca
-        busca.ordem.setCurrentIndex(1)
         with patch.object(search_page.EXECUTOR_GLOBAL, 'rodar'):
             busca._mostrar(dados)
-        self.assertEqual(busca._verif_ativas + len(busca._fila_verif), 13)
+        self.assertEqual(busca._verif_ativas + len(busca._fila_verif), 0)
         card = busca.cards[-1]
         card.marcar(True)
         card.resultado.formatos = [AudioFormat(codec='opus', bitrate_kbps=160, format_id='251')]
         busca._fila_verif.clear()
         busca._verif_ativas = 0
         busca._status_verificacao()
-        self.assertIs(busca.cards[0], card)
+        self.assertIs(busca.cards[-1], card)
         self.assertTrue(card.check.isChecked())
 
     def test_falha_qualidade_mostra_motivo_sem_repeticao_automatica(self):

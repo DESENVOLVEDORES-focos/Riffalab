@@ -42,7 +42,8 @@ class Interface(unittest.TestCase):
         EXECUTOR_FORMATOS.aguardar(30000)
         self.app.processEvents()
         from PySide6.QtCore import QCoreApplication, QEvent
-        self.janela.close()
+        with patch('app.ui.main_window.QMessageBox.warning', return_value=QMessageBox.Yes):
+            self.janela.close()
         self.janela.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
@@ -560,6 +561,11 @@ class Interface(unittest.TestCase):
             rodadas.append((fn, args, kwargs))
             if fn is search_page.pesquisar:
                 kwargs['ao_resultado'](saida)
+            elif fn is downloads_page.identificar_antes_de_download:
+                resultado = args[0]
+                dados = {'meta': TrackMeta(titulo=resultado.titulo, artista=resultado.artista),
+                         'ident': None, 'capa': CoverResult(), 'capa_pendente': True}
+                kwargs['ao_resultado'](dados)
             elif fn is downloads_page.preparar_musica:
                 resultado = args[0]
                 dados = {'meta': TrackMeta(titulo=resultado.titulo, artista=resultado.artista),
@@ -592,7 +598,7 @@ class Interface(unittest.TestCase):
             with patch.object(downloads_page, 'DialogoCapas', return_value=dialogo_sem_capa):
                 downloads.btn_preparar.click()
             self.assertTrue(downloads.selecoes[0].preparacao is not None)
-            self.assertIsNone(downloads.selecoes[1].preparacao)
+            self.assertTrue(downloads.selecoes[1].preparacao['capa_pendente'])
             self.assertTrue(downloads.btn_baixar.isEnabled())
             with patch.object(self.janela.fila, 'adicionar', return_value=1) as adicionar:
                 downloads.btn_baixar.click()
@@ -694,7 +700,7 @@ class Interface(unittest.TestCase):
             busca.cards[0].check.setChecked(True)
             with patch.object(self.janela.toast, 'mostrar') as toast:
                 busca.cards[0].btn_processar.click()
-                self.assertIn('Adicionada a Downloads', toast.call_args.args[0])
+                self.assertIn('Identificando antes do download', toast.call_args.args[0])
                 self.assertIs(self.janela.pilha.currentWidget(), busca)
                 self.assertEqual(len(self.janela.pagina_downloads.selecoes), 1)
                 self.assertEqual(len(self.janela.fila.jobs), 0)
@@ -702,6 +708,63 @@ class Interface(unittest.TestCase):
                 busca.cards[0].btn_processar.click()
                 self.assertIn('já está', toast.call_args.args[0])
                 self.assertEqual(len(self.janela.pagina_downloads.selecoes), 1)
+
+    def test_identificacao_antes_de_exibir_persiste_limita_e_continua_apos_falha(self):
+        from app.models import CoverResult, TrackMeta, TrackResult
+        from app.ui.pages import downloads_page
+        pagina = self.janela.pagina_downloads
+        tarefas = []
+        def agendar(fn, *args, **kwargs):
+            tarefas.append((fn, args, kwargs))
+        with patch.object(downloads_page.EXECUTOR_GLOBAL, 'rodar', side_effect=agendar):
+            for n in range(3):
+                r = TrackResult(str(n), 'ytdlp', 'Original', 'Canal')
+                self.assertTrue(pagina.adicionar_selecao({'resultado': r}, identificar=True))
+            self.assertEqual(len(tarefas), 2)
+            self.assertTrue(all(x.isHidden() for x in pagina.selecoes))
+            self.assertIn('3 identificando', pagina.resumo.text())
+            self.assertFalse(pagina.btn_baixar.isEnabled())
+            armazenado = self.banco.ler_estado('downloads_selecionados')
+            self.assertTrue(all(x['identificacao_pendente'] for x in armazenado))
+            self.assertFalse(pagina.adicionar_selecao({'resultado': r}, identificar=True))
+            tarefas[0][2]['ao_resultado']({'meta': TrackMeta(titulo='Identificada', artista='Artista',
+                              album='Disco', ano=2000, faixa=3), 'ident': None,
+                              'capa': CoverResult(), 'capa_pendente': True})
+            self.assertEqual(len(tarefas), 3)
+            self.assertFalse(pagina.selecoes[0].isHidden())
+            self.assertIn('Disco', pagina.selecoes[0].detalhes.text())
+            armazenado = self.banco.ler_estado('downloads_selecionados')
+            self.assertFalse(armazenado[0]['identificacao_pendente'])
+            self.assertEqual(armazenado[0]['preparacao']['meta']['faixa'], 3)
+            tarefas[1][2]['ao_erro']('falha simulada')
+            self.assertFalse(pagina.selecoes[1].isHidden())
+            self.assertIn('Não foi possível', pagina.selecoes[1].detalhes.text())
+            tarefas[2][2]['ao_erro']('falha simulada')
+            with patch.object(downloads_page, 'preparar_musica', side_effect=AssertionError('não repetir IA')), \
+                 patch.object(downloads_page.QMessageBox, 'question', return_value=QMessageBox.Yes):
+                pagina._preparar_sem_capa()
+            self.assertFalse(pagina.selecoes[0].preparacao['capa_pendente'])
+            self.assertEqual(pagina.selecoes[0].preparacao['meta'].album, 'Disco')
+
+    def test_pendente_restaurado_retorna_para_identificacao(self):
+        from app.models import TrackResult
+        from app.ui.pages import downloads_page
+        pagina = self.janela.pagina_downloads
+        tarefas = []
+        with patch.object(downloads_page.EXECUTOR_GLOBAL, 'rodar', side_effect=lambda *a, **k: tarefas.append(k)):
+            pagina.adicionar_selecao({'resultado': TrackResult('a', 'ytdlp', 'Faixa', 'Artista')}, identificar=True)
+            registro = self.banco.ler_estado('downloads_selecionados')[0]
+            self.assertTrue(registro['identificacao_pendente'])
+            # Simula reinício a partir do registro salvo, sem limpar o banco.
+            outra = downloads_page.DownloadsPage(self.cfg, self.janela.fila)
+            self.app.processEvents()
+            self.assertTrue(outra.selecoes[0].isHidden())
+            self.assertEqual(len(tarefas), 2)
+            tarefas[1]['ao_erro']('offline')
+            self.assertFalse(outra.selecoes[0].identificacao_pendente)
+            outra._encerrando = True
+            outra.deleteLater()
+        pagina._identificacoes_ativas.clear()
 
     def test_marcados_de_resultado_filtrado_e_limpar(self):
         from app.models import TrackResult
@@ -892,7 +955,8 @@ class Interface(unittest.TestCase):
             busca.cards[0].check.setChecked(True)
             self.janela.enfileirar({'resultado':r2, 'formato':fmt})
         busca._guardar_lista('Favoritas')
-        self.janela.close()
+        with patch('app.ui.main_window.QMessageBox.warning', return_value=QMessageBox.Yes):
+            self.janela.close()
         self.janela.deleteLater()
         self.app.processEvents()
         self.banco = Banco(self.base / 'banco.db')

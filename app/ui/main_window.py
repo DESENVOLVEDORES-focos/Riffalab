@@ -181,9 +181,9 @@ class MainWindow(QMainWindow):
         ja_existe = any(x.pedido['resultado'].fonte == resultado.fonte and
                         x.pedido['resultado'].uid == resultado.uid
                         for x in self.pagina_downloads.selecoes)
-        adicionada = self.pagina_downloads.adicionar_selecao(dados)
+        adicionada = self.pagina_downloads.adicionar_selecao(dados, identificar=True)
         if adicionada and not dados.get("lote"):
-            mensagem = f"Adicionada a Downloads: {resultado.artista} — {resultado.titulo}"
+            mensagem = f"Identificando antes do download: {resultado.titulo}"
             self.statusBar().showMessage(mensagem)
             self.toast.mostrar(mensagem)
         self._sincronizar_contador()
@@ -257,11 +257,11 @@ class MainWindow(QMainWindow):
             self.toast._posicionar()
 
     def closeEvent(self, evento) -> None:             # noqa: N802
-        if self.fila.pendentes or self.pagina_downloads._preparando:
+        if self.fila.pendentes or self.pagina_downloads._preparando or self.pagina_downloads._identificacoes_ativas:
             resposta = QMessageBox.warning(
                 self, 'Processamento em andamento',
-                'Há músicas na fila ou capas sendo pesquisadas. Fechar agora pode interromper '
-                'o processamento. Downloads em andamento ou aguardando não serão retomados automaticamente. Deseja fechar mesmo assim?',
+                'Há músicas na fila, identificação em andamento ou capas sendo pesquisadas. '
+                'Identificações pendentes serão retomadas ao abrir novamente; downloads em andamento ou aguardando não. Deseja fechar mesmo assim?',
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if resposta != QMessageBox.Yes:
                 evento.ignore()
@@ -273,6 +273,7 @@ class MainWindow(QMainWindow):
             pagina._encerrando = True
             pagina._geracao_busca += 1
             pagina._buscando = False
+        self.pagina_downloads._encerrando = True
         self.pagina_downloads._a_preparar.clear()
         self.pagina_downloads._preparando = False
         try:

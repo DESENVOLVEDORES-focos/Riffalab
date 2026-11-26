@@ -150,3 +150,114 @@ def preparar_musica(resultado: TrackResult, config: Config, progresso=None,
         capa = CoverResult(observacao='Pesquise no Google quando quiser e cole a imagem copiada.')
     return {'meta': meta, 'ident': ident, 'capa': capa, 'apagar_tags': apagar_tags,
             'consulta_capa': consulta_capa}
+
+
+def identificar_antes_de_download(resultado: TrackResult, config: Config, edicao=None) -> Dict[str, Any]:
+    """Duas etapas: identidade do vídeo, depois dados da música e catálogos.
+
+    Não escuta o áudio. Sugestões não são prova; nunca usa álbum da IA como
+    confirmação nem deixa uma identificação automática substituir edição manual.
+    """
+    from .ia import revisao as revisao_ia
+    from .metadata.correspondencia import versoes
+    from .models import CoverResult, TrackMeta
+    from .texto import limpar_titulo_tags, normalizar, separar_artista_titulo
+
+    edicao = dict(edicao or {})
+    original = str((resultado.extra or {}).get('titulo_original') or resultado.titulo or '')
+    titulo = str(edicao.get('titulo') or resultado.titulo or '').strip()
+    artista = str(edicao.get('artista') or resultado.artista or '').strip()
+    prefixo, faixa = separar_artista_titulo(titulo)
+    if prefixo and faixa and artista and normalizar(prefixo) == normalizar(artista):
+        titulo = faixa
+    titulo = limpar_titulo_tags(titulo)
+    primeira = None
+    segura = False
+    avisos = []
+    if config.get('ia_ativa'):
+        primeira = identificador.identificar(resultado, config, somente_identidade=True)
+        incertos = {normalizar(str(c)).replace(' ', '_') for c in (primeira.campos_incertos or [])}
+        ai_titulo = limpar_titulo_tags(primeira.titulo or '')
+        ai_artista = str(primeira.artista or '').strip()
+        bruto = normalizar(original)
+        # O vídeo ou sua fonte devem sustentar ambos os nomes: autoconfiança do
+        # modelo, sozinha, não impede confusão com uma música homônima.
+        titulo_no_video = bool(normalizar(ai_titulo) and normalizar(ai_titulo) in bruto)
+        artista_no_video = bool(normalizar(ai_artista) and normalizar(ai_artista) in bruto)
+        artista_da_fonte = bool(artista and normalizar(ai_artista) == normalizar(artista))
+        segura = (primeira.ok and identificador._confianca(primeira.confianca) >= max(.70, identificador._confianca(config.get('ia_min_confianca') or 0))
+                  and not {'titulo', 'artista'}.intersection(incertos)
+                  and titulo_no_video and (artista_no_video or artista_da_fonte)
+                  and versoes(original) == versoes(ai_titulo))
+        if segura:
+            if 'titulo' not in edicao:
+                titulo = ai_titulo
+            if 'artista' not in edicao:
+                artista = ai_artista
+        else:
+            if not primeira.ok and primeira.erro:
+                avisos.append('IA indisponível ou sem resposta; confira título e artista.')
+            else:
+                avisos.append('IA não confirmou a identidade do vídeo; confira título e artista.')
+    else:
+        avisos.append('IA desativada; usando os dados disponíveis da origem.')
+
+    # Para vídeos, nome do canal isolado não prova o intérprete. Uma
+    # identidade explícita no título, uma origem não-vídeo ou uma edição
+    # manual podem sustentar a consulta mesmo se a IA estiver indisponível.
+    artista_no_original = bool(normalizar(artista) and normalizar(artista) in normalizar(original))
+    fonte_confiavel = resultado.fonte != 'ytdlp' or artista_no_original
+    confiavel = bool(titulo and artista and (segura or fonte_confiavel))
+    if 'titulo' in edicao and 'artista' in edicao:
+        confiavel = bool(titulo and artista)
+    segunda, catalogo = None, {}
+    if confiavel:
+        pedido = {'dados_atuais': {'titulo': titulo, 'artista': artista,
+                                    'album': edicao.get('album') or ''}, 'observacao': ''}
+        resposta = revisao_ia.reavaliar(resultado, config, pedido)
+        segunda, catalogo = resposta['ident'], resposta['catalogo']
+    else:
+        avisos.append('Artista não identificado com segurança; revise os dados antes de baixar.')
+
+    meta = TrackMeta(titulo=titulo, artista=artista, album=resultado.album or '',
+                     ano=resultado.ano, fonte_identificacao='dados da origem')
+    if catalogo:
+        # Não combinar ano/álbum de origem com uma edição de catálogo diferente.
+        meta.album = ''
+        meta.ano = None
+        meta.titulo = catalogo.get('titulo') or titulo
+        meta.artista = artista
+        for campo in ('album', 'ano', 'faixa', 'artista_album', 'genero', 'total_faixas', 'disco'):
+            if catalogo.get(campo):
+                setattr(meta, campo, catalogo[campo])
+        meta.fonte_identificacao = ' + '.join(catalogo.get('fontes') or [catalogo.get('fonte') or 'catálogo'])
+        if segunda and segunda.ok and identificador._confianca(segunda.confianca) >= .70:
+            incertos = {normalizar(str(c)).replace(' ', '_') for c in (segunda.campos_incertos or [])}
+            mesma = revisao_ia.mesma_identidade(titulo, artista,
+                       {'titulo': segunda.titulo, 'artista': segunda.artista})
+            if mesma and not {'titulo', 'artista'}.intersection(incertos):
+                if 'artistas_participantes' not in incertos:
+                    meta.artistas_participantes = list(segunda.artistas_participantes or [])
+                    if meta.artistas_participantes:
+                        avisos.append('Participações sugeridas pela IA, não confirmadas pelo catálogo.')
+                if (not meta.genero and segunda.genero and 'genero' not in incertos
+                        and 'album' not in incertos and segunda.album
+                        and normalizar(segunda.album) == normalizar(meta.album)):
+                    meta.genero = segunda.genero
+                    avisos.append('Gênero sugerido pela IA, não confirmado pelo catálogo.')
+    elif confiavel:
+        avisos.append('Catálogo não confirmou um lançamento; confira os campos antes de baixar.')
+    if segunda and not segunda.ok and config.get('ia_ativa'):
+        avisos.append('A segunda consulta à IA não pôde ser concluída.')
+    apagar = aplicar_edicao(meta, edicao)
+    creditos = []
+    for chave, rotulo in (('creditos_album', 'Créditos do álbum no MusicBrainz'),
+                          ('creditos_faixa', 'Créditos da faixa no MusicBrainz')):
+        if catalogo.get(chave):
+            creditos.append(rotulo + ': ' + '; '.join(catalogo[chave][:30]))
+    consulta = {'titulo': meta.titulo, 'artista': meta.artista, 'origem': 'dados identificados',
+                'aviso': ' '.join(avisos) or 'Confira a identidade e a edição antes de confirmar a capa.'}
+    return {'meta': meta, 'ident': segunda or primeira, 'capa': CoverResult(),
+            'apagar_tags': apagar, 'consulta_capa': consulta,
+            'capa_pendente': True, 'identificacao_aviso': ' '.join(avisos),
+            'creditos_catalogo': creditos}

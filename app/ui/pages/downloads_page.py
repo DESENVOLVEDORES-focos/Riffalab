@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
                                QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
                                QVBoxLayout, QWidget)
@@ -17,7 +17,7 @@ from ...config import Config
 from ...downloader import GerenciadorFila
 from ...logging_setup import registrar_erro, texto_seguro
 from ...models import CoverResult, hhmmss
-from ...preparacao import preparar_musica, preparar_previa, aplicar_edicao
+from ...preparacao import preparar_musica, preparar_previa, aplicar_edicao, identificar_antes_de_download
 from ...workers import EXECUTOR_GLOBAL
 from ..dialogos import DialogoCapas
 from ..theme import PALETA, alfa
@@ -147,6 +147,8 @@ class LinhaSelecao(QFrame):
         super().__init__(pai)
         self.pedido = pedido
         self.preparacao = None
+        self.identificacao_pendente = False
+        self.identificando_ativo = False
         self.setObjectName("cartao")
         layout = QHBoxLayout(self)
         self.check = QCheckBox()
@@ -163,6 +165,7 @@ class LinhaSelecao(QFrame):
         fmt = pedido.get('formato')
         audio = 'Melhor áudio disponível' if not fmt or fmt.format_id == 'bestaudio' else fmt.descricao_curta()
         self.detalhes = QLabel(f'{audio} · capa ainda não escolhida')
+        self.detalhes.setTextFormat(Qt.PlainText)
         self.detalhes.setWordWrap(True)
         self.detalhes.setObjectName('dim')
         textos.addWidget(self.detalhes)
@@ -187,7 +190,8 @@ class LinhaSelecao(QFrame):
         capa = preparacao['capa']
         fmt = self.pedido.get('formato')
         audio = 'Melhor áudio disponível' if not fmt or fmt.format_id == 'bestaudio' else fmt.descricao_curta()
-        detalhe = f"capa: {capa.album or capa.fonte}" if capa.ok else 'sem capa (escolha confirmada)'
+        detalhe = ('capa ainda não escolhida' if preparacao.get('capa_pendente') else
+                   f"capa: {capa.album or capa.fonte}" if capa.ok else 'sem capa (escolha confirmada)')
         if preparacao.get('revisao_pendente'):
             detalhe += ' · dados alterados: revise antes de baixar'
         campos = [f"Álbum: {meta.album or 'não identificado'}",
@@ -196,9 +200,29 @@ class LinhaSelecao(QFrame):
                   f"Faixa: {meta.faixa or 'não identificada'}",
                   f"Artista do álbum: {meta.artista_album or 'não identificado'}",
                   f"Participações: {', '.join(meta.artistas_participantes) or 'não identificadas'}"]
-        self.detalhes.setText(f"{audio} · {detalhe}\n" + ' · '.join(campos) +
-                              '\nDuração final medida após a conversão. Revise em Editar dados.')
-        self.btn_capa.setText('Revisar capa' if preparacao.get('revisao_pendente') else 'Trocar capa')
+        sugestao = ''
+        ident = preparacao.get('ident')
+        if ident and ident.ok:
+            from ...ia.revisao import mesma_identidade
+            from ...texto import normalizar
+            if mesma_identidade(meta.titulo, meta.artista, {'titulo': ident.titulo, 'artista': ident.artista}):
+                incertos = {normalizar(str(c)).replace(' ', '_') for c in (ident.campos_incertos or [])}
+                partes = []
+                for campo, rotulo in (('album', 'álbum'), ('genero', 'gênero'), ('ano', 'ano'),
+                                      ('faixa', 'faixa'), ('artista_album', 'artista do álbum')):
+                    valor = getattr(ident, campo, None)
+                    if valor and campo not in incertos:
+                        partes.append(f'{rotulo}: {valor}')
+                if ident.creditos_album and 'creditos_album' not in incertos:
+                    partes.append('créditos do álbum: ' + '; '.join(ident.creditos_album[:30]))
+                if partes:
+                    sugestao = '\nSugestões da IA não confirmadas: ' + ' · '.join(partes)
+        self.detalhes.setText(f"{audio} · {detalhe}\n" + ' · '.join(campos) + sugestao +
+                              ('\n' + '\n'.join(preparacao['creditos_catalogo']) if preparacao.get('creditos_catalogo') else '') +
+                              ('\n' + preparacao['identificacao_aviso'] if preparacao.get('identificacao_aviso') else '') +
+                              '\nDuração final medida após a conversão. Revise em Editar dados se necessário.')
+        self.btn_capa.setText('Revisar capa' if preparacao.get('revisao_pendente') else
+                              'Escolher capa' if preparacao.get('capa_pendente') else 'Trocar capa')
         self.alterada.emit()
 
 
@@ -449,6 +473,8 @@ class DownloadsPage(QWidget):
         self._erro_recuperar = ""
         self._a_preparar: list[LinhaSelecao] = []
         self._geracao_preparacao = 0
+        self._encerrando = False
+        self._identificacoes_ativas = set()
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(26, 22, 26, 16)
@@ -511,8 +537,9 @@ class DownloadsPage(QWidget):
         self._restaurar_selecoes()
         self._restaurando = False
         self._atualizar_resumo()
+        QTimer.singleShot(0, self._iniciar_identificacoes)
 
-    def adicionar_selecao(self, pedido: dict) -> bool:
+    def adicionar_selecao(self, pedido: dict, identificar: bool = False) -> bool:
         r = pedido.get('resultado')
         if r is None:
             return False
@@ -521,6 +548,12 @@ class DownloadsPage(QWidget):
             self.mensagem.emit('Esta música já está na lista de Downloads.')
             return False
         linha = LinhaSelecao(pedido)
+        if identificar:
+            linha.identificacao_pendente = True
+            linha.detalhes.setText('Identificando título, artista e metadados em segundo plano…')
+            linha.btn_editar.setEnabled(False)
+            linha.btn_capa.setEnabled(False)
+            linha.hide()  # Só apresenta a música depois das consultas.
         linha.alterada.connect(self._selecao_alterada)
         linha.remover.connect(self._remover_selecao)
         linha.escolher_capa.connect(self._preparar_uma)
@@ -536,7 +569,48 @@ class DownloadsPage(QWidget):
             linha.deleteLater()
             self._atualizar_resumo()
             return False
+        if identificar and not self._restaurando:
+            self._iniciar_identificacoes()
         return True
+
+    def _iniciar_identificacoes(self) -> None:
+        """Até duas músicas por vez; resultados tardios de removidos são ignorados."""
+        if self._encerrando:
+            return
+        for linha in self.selecoes:
+            if len(self._identificacoes_ativas) >= 2:
+                break
+            if not linha.identificacao_pendente or linha.identificando_ativo:
+                continue
+            linha.identificando_ativo = True
+            self._identificacoes_ativas.add(linha)
+            def finalizar(dados=None, erro='', item=linha):
+                self._identificacoes_ativas.discard(item)
+                item.identificando_ativo = False
+                if self._encerrando:
+                    return
+                if item in self.selecoes and item.identificacao_pendente:
+                    if dados is None:
+                        dados = preparar_previa(item.pedido['resultado'], self.config, item.pedido.get('edicao'))
+                        dados['capa_pendente'] = True
+                        dados['identificacao_aviso'] = ('Não foi possível identificar automaticamente. '
+                            'Os dados da origem foram preservados; confira em Editar dados.')
+                        dados['consulta_capa']['aviso'] = dados['identificacao_aviso']
+                    item.identificacao_pendente = False
+                    item.btn_editar.setEnabled(True)
+                    item.btn_capa.setEnabled(True)
+                    item.definir_preparacao(dados)
+                    item.show()
+                    if erro:
+                        self.mensagem.emit('Identificação automática indisponível; confira os dados da música.')
+                self._iniciar_identificacoes()
+            try:
+                EXECUTOR_GLOBAL.rodar(identificar_antes_de_download, linha.pedido['resultado'], self.config,
+                    edicao=dict(linha.pedido.get('edicao') or {}),
+                    ao_resultado=lambda dados, f=finalizar: f(dados),
+                    ao_erro=lambda erro, f=finalizar: f(erro=erro))
+            except Exception as exc:
+                finalizar(erro=str(exc))
 
     def _remover_selecao(self, linha: LinhaSelecao) -> None:
         if self._preparando or linha not in self.selecoes:
@@ -571,8 +645,8 @@ class DownloadsPage(QWidget):
         try:
             registros = self.fila.banco.ler_estado('downloads_selecionados', []) or []
             dados = [estado_musicas.desserializar_selecao(d) for d in registros]
-            for pedido, marcada, preparacao in dados:
-                if self.adicionar_selecao(pedido):
+            for registro, (pedido, marcada, preparacao) in zip(registros, dados):
+                if self.adicionar_selecao(pedido, identificar=registro.get('identificacao_pendente') is True):
                     linha = self.selecoes[-1]
                     linha.check.setChecked(marcada)
                     if preparacao:
@@ -610,6 +684,7 @@ class DownloadsPage(QWidget):
             # prévia local limpa, mas guarda a capa para a próxima confirmação.
             previa = preparar_previa(linha.pedido['resultado'], self.config, edicao)
             previa['capa'] = preparacao['capa']
+            previa['capa_pendente'] = bool(preparacao.get('capa_pendente'))
             previa['revisao_pendente'] = True
             previa['consulta_capa']['aviso'] = (
                 'Dados alterados. A capa anterior foi preservada; confira-a com a nova identidade.')
@@ -627,10 +702,10 @@ class DownloadsPage(QWidget):
         self._iniciar_preparacao([linha])
 
     def _preparar_selecionadas(self) -> None:
-        self._iniciar_preparacao([l for l in self.selecoes if l.check.isChecked()])
+        self._iniciar_preparacao([l for l in self.selecoes if l.check.isChecked() and not l.identificacao_pendente])
 
     def _preparar_sem_capa(self) -> None:
-        linhas = [l for l in self.selecoes if l.check.isChecked()]
+        linhas = [l for l in self.selecoes if l.check.isChecked() and not l.identificacao_pendente]
         if not linhas or self._preparando:
             return
         nao_marcadas = len(self.selecoes) - len(linhas)
@@ -644,6 +719,9 @@ class DownloadsPage(QWidget):
 
     def _iniciar_preparacao(self, linhas: list[LinhaSelecao], sem_capa: bool = False) -> None:
         if self._preparando or not linhas:
+            return
+        if any(l.identificacao_pendente for l in linhas):
+            self.mensagem.emit('Aguarde a identificação das músicas selecionadas antes de revisar as capas.')
             return
         self._preparando = True
         self._geracao_preparacao += 1
@@ -665,6 +743,15 @@ class DownloadsPage(QWidget):
                               'participacoes': ', '.join(meta.artistas_participantes)}}
 
     def _proxima_capa(self) -> None:
+        # Processa lotes já identificados sem recursão nem novas chamadas à IA.
+        while (self._sem_capa_lote and self._a_preparar and
+               self._a_preparar[0].preparacao and
+               not self._a_preparar[0].preparacao.get('revisao_pendente')):
+            item = self._a_preparar.pop(0)
+            dados = dict(item.preparacao)
+            dados['capa'] = CoverResult(observacao='Usuário escolheu não usar capa no lote')
+            dados['capa_pendente'] = False
+            item.definir_preparacao(dados)
         if not self._a_preparar:
             self._preparando = False
             self._atualizar_resumo()
@@ -741,6 +828,7 @@ class DownloadsPage(QWidget):
         capa = dialogo.escolhida if not dialogo.recusou else None
         dados['capa'] = capa or CoverResult(observacao='Usuário escolheu não usar capa')
         dados['revisao_pendente'] = False
+        dados['capa_pendente'] = False
         linha.definir_preparacao(dados)
         self._proxima_capa()
 
@@ -763,10 +851,11 @@ class DownloadsPage(QWidget):
         QMessageBox.warning(self, 'Não foi possível buscar a capa', mensagem[:500])
 
     def _baixar_selecionadas(self) -> None:
-        selecionadas = [l for l in self.selecoes if l.check.isChecked()]
+        selecionadas = [l for l in self.selecoes if l.check.isChecked() and not l.identificacao_pendente]
         if not selecionadas or self._preparando:
             return
-        if any(l.preparacao is None or l.preparacao.get('revisao_pendente') for l in selecionadas):
+        if any(l.identificacao_pendente or l.preparacao is None or l.preparacao.get('revisao_pendente')
+               or l.preparacao.get('capa_pendente') for l in selecionadas):
             self.mensagem.emit('Escolha ou revise as capas de todas as músicas selecionadas primeiro.')
             return
         for linha in selecionadas:
@@ -826,8 +915,11 @@ class DownloadsPage(QWidget):
         prontos = sum(1 for l in self.linhas.values()
                       if l.job.get("status") == "finalizado")
         erros = sum(1 for l in self.linhas.values() if l.job.get("status") == "erro")
-        escolhidas = [l for l in self.selecoes if l.check.isChecked()]
-        faltam = sum(l.preparacao is None or bool(l.preparacao.get('revisao_pendente')) for l in escolhidas)
+        identificando = sum(l.identificacao_pendente for l in self.selecoes)
+        escolhidas = [l for l in self.selecoes if l.check.isChecked() and not l.identificacao_pendente]
+        faltam = sum(l.identificacao_pendente or l.preparacao is None or
+                     bool(l.preparacao.get('revisao_pendente') or l.preparacao.get('capa_pendente'))
+                     for l in escolhidas)
         self.btn_preparar.setEnabled(bool(escolhidas) and not self._preparando)
         self.btn_sem_capa.setEnabled(bool(escolhidas) and not self._preparando)
         self.btn_baixar.setEnabled(bool(escolhidas) and not faltam and not self._preparando)
@@ -837,8 +929,9 @@ class DownloadsPage(QWidget):
         if self._erro_recuperar:
             self.resumo.setText('Não foi possível recuperar Downloads salvos; dados anteriores foram preservados. ' + self._erro_recuperar[:180])
         elif not self._preparando:
-            self.resumo.setText(f'{len(self.selecoes)} na seleção · {faltam} capa(s) a revisar · '
-                                f'{pendentes} na fila · {prontos} concluído(s) · {erros} erro(s)')
+            self.resumo.setText(f'{len(self.selecoes) - identificando} na seleção · {identificando} identificando · '
+                                f'{faltam} capa(s) a revisar · {pendentes} na fila · '
+                                f'{prontos} concluído(s) · {erros} erro(s)')
 
     def _limpar(self) -> None:
         for jid, linha in list(self.linhas.items()):

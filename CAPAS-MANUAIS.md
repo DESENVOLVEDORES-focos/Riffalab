@@ -1,11 +1,17 @@
-# RiffLab 0.11.4 — capa manual e revisão dos dados
+# RiffLab 0.11.5 — identificação automática e capa manual
 
 A pesquisa de capas é manual: a janela **não abre o Google automaticamente** e não consulta serviços de capas. A IA opcional e os catálogos de metadados são independentes da escolha da imagem.
+
+## Identificação automática ao transferir
+
+Ao enviar músicas da pesquisa para Downloads, a seleção é salva antes de começar. Em segundo plano, a IA tenta identificar música e artista a partir do título original do vídeo. Em seguida, quando houver identidade suficiente, outra chamada usa título e artista para obter os demais dados, enquanto MusicBrainz e iTunes são consultados separadamente. O contador mostra quantas músicas ainda estão sendo identificadas; cada uma só aparece na lista quando essa etapa termina. Não é necessário abrir **Editar dados** para fazer as consultas. Se fechar durante a identificação, as músicas pendentes serão retomadas ao abrir novamente.
+
+Álbum, ano e número da faixa são aproveitados do catálogo quando há correspondência compatível. A tela mostra os dados obtidos, eventuais créditos de catálogo e sugestões da IA separadas como não confirmadas. A IA não ouve o áudio nem pesquisa na internet: mesmo resultados bem avaliados podem estar errados ou incompletos. Se a IA estiver desativada, indisponível ou incerta, os dados de origem são preservados com aviso; campos sem confirmação podem ficar vazios. Se precisar corrigir algo, use **Editar dados**. Nenhuma música é baixada durante a identificação.
 
 ## Escolher a capa
 
 1. Em Downloads, clique em **Escolher capa** ou em **Revisar capas selecionadas** para seguir uma música de cada vez.
-2. A janela abre com dados provisórios enquanto a IA (se ativa) e os catálogos procuram os metadados em segundo plano. Você já pode clicar em **Pesquisar imagens no Google** e copiar a imagem; o Google não abre sozinho. Se a identidade mudar após a pesquisa, haverá um aviso: confira-a e pesquise novamente se necessário.
+2. A janela usa os dados já identificados. Clique em **Pesquisar imagens no Google** quando desejar; o Google não abre sozinho. Se você corrigiu a identidade ou abriu uma seleção antiga, pode ser necessária uma atualização em segundo plano antes da confirmação.
 3. No navegador, clique com o botão direito na imagem desejada e escolha **Copiar imagem**. Volte ao RiffLab e clique em **Colar imagem copiada**. Não é preciso baixar nem selecionar um arquivo. A imagem colada será salva em `RiffLab/Download de Capas`, sem substituir imagens anteriores.
 4. Aguarde a identificação dos metadados terminar, confira os dados e a prévia e pressione **Usar esta capa**, ou **Não usar capa**. O download só começa depois da confirmação na tela Downloads.
 
@@ -17,7 +23,7 @@ A IA recebe instruções específicas para identificar título, artista principa
 
 Para o álbum, o programa procura uma gravação compatível no MusicBrainz, prioriza um álbum regular associado e usa o nome do grupo de lançamento para preservar sua grafia; se não houver álbum, pode utilizar um single associado. Essa busca tem limites, e uma correspondência não garante que seja a edição original ou correta. Gêneros vêm dos catálogos e alguns nomes comuns têm grafia padronizada; não há garantia de classificação ou capitalização universal. Os números de faixa e dados de edição só são aproveitados sob verificações adicionais, mas ainda podem exigir correção.
 
-Se não houver informações suficientes, alguns campos ficarão vazios. **Antes de baixar, use Editar dados para conferir e corrigir os oito campos.** A IA e os catálogos podem errar ou estar indisponíveis; não há garantia de acerto ou de todos os campos preenchidos. Músicas já baixadas não são alteradas. A duração final é medida depois da conversão.
+Se não houver informações suficientes, alguns campos ficarão vazios. **Use Editar dados somente se precisar corrigir os campos exibidos.** A IA e os catálogos podem errar ou estar indisponíveis; não há garantia de acerto ou de todos os campos preenchidos. Músicas já baixadas não são alteradas. A duração final é medida depois da conversão.
 
 ## Pedir nova sugestão à IA
 

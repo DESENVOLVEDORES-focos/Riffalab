@@ -87,6 +87,19 @@ ESQUEMA: Dict[str, Any] = {
 }
 
 
+SISTEMA_VIDEO = (
+    "Identifique o título da música e seu intérprete a partir do título original do vídeo. "
+    "O canal pode ser apenas um fã, selo ou canal de vídeos; não o confunda com artista. "
+    "Não invente: se a identidade for incerta, devolva null e informe em campos_incertos. "
+    "Remova ruídos de vídeo, mas preserve versões musicais como live, remix, cover ou instrumental. "
+    "Você não ouve o áudio nem acessa a internet. Responda somente com o JSON solicitado."
+)
+_CAMPOS_VIDEO = ('identificado', 'confianca', 'titulo', 'artista', 'campos_incertos')
+ESQUEMA_VIDEO = {'type': 'object', 'additionalProperties': False,
+                 'required': list(_CAMPOS_VIDEO),
+                 'properties': {k: ESQUEMA['properties'][k] for k in _CAMPOS_VIDEO}}
+
+
 SISTEMA_REVISAO = (
     "Você cataloga músicas. Reavalie a música usando o título, artista e álbum "
     "informados. Use o artista informado como referência principal: não o troque "
@@ -171,7 +184,7 @@ def montar_pedido(resultado: TrackResult, revisao: Optional[dict] = None) -> str
     """Só o necessário — nunca cookies, nunca credenciais (proposta §9)."""
     if revisao is not None:
         atuais = revisao.get('dados_atuais') or {}
-        dados = {'titulo_original': resultado.titulo,
+        dados = {'titulo_original': (resultado.extra or {}).get('titulo_original') or resultado.titulo,
                  'titulo': atuais.get('titulo') or resultado.titulo,
                  'artista': atuais.get('artista') or resultado.artista,
                  'album': atuais.get('album') or resultado.album or None,
@@ -179,7 +192,7 @@ def montar_pedido(resultado: TrackResult, revisao: Optional[dict] = None) -> str
         return ("Reavalie esta música. Os dados atuais podem estar errados; "
                 "não copie valores sem certeza.\n" + json.dumps(dados, ensure_ascii=False, indent=2))
     dados = {
-        "titulo_do_video": resultado.titulo,
+        "titulo_do_video": (resultado.extra or {}).get("titulo_original") or resultado.titulo,
         "canal": resultado.canal or resultado.extra.get("canal") or resultado.artista,
         "url": resultado.pagina_url,
         "duracao_segundos": int(resultado.duracao_s or 0),
@@ -210,7 +223,8 @@ def _conferir_musicbrainz(ident: Identificacao) -> None:
 
 # ------------------------------------------------------------------- principal
 def identificar(resultado: TrackResult, config: Config,
-                progresso=None, revisao: Optional[dict] = None) -> Identificacao:
+                progresso=None, revisao: Optional[dict] = None,
+                somente_identidade: bool = False) -> Identificacao:
     """Identifica a música com a Groq. Nunca levanta exceção."""
     inicio = time.time()
     ok, motivo = cliente_groq.disponivel(config)
@@ -224,8 +238,8 @@ def identificar(resultado: TrackResult, config: Config,
             pass
 
     try:
-        sistema = SISTEMA_REVISAO if revisao is not None else SISTEMA
-        esquema = ESQUEMA_REVISAO if revisao is not None else ESQUEMA
+        sistema = SISTEMA_VIDEO if somente_identidade else SISTEMA_REVISAO if revisao is not None else SISTEMA
+        esquema = ESQUEMA_VIDEO if somente_identidade else ESQUEMA_REVISAO if revisao is not None else ESQUEMA
         bruto, modelo = cliente_groq.completar_json(
             config, sistema, montar_pedido(resultado, revisao), esquema)
     except cliente_groq.ErroGroq as exc:

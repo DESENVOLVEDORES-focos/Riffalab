@@ -236,7 +236,8 @@ class FonteYtDlp(FonteBase):
                 formatos=[],           # preenchidos por detalhar()
                 licenca="conferir licença na origem",
                 aviso="qualidade a verificar",
-                extra={"canal": canal, "id": entrada.get("id"), "url": url},
+                extra={"canal": canal, "id": entrada.get("id"), "url": url,
+                       "titulo_original": bruto[:500]},
             )
             # o modo --flat-playlist omite quase tudo: preenche o que vier
             # (alguns campos aparecem dependendo da versão do yt-dlp) e deixa

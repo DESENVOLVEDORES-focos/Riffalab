@@ -53,7 +53,8 @@ def desserializar_pedido(d: dict) -> dict:
 
 
 def serializar_selecao(linha) -> dict:
-    d = {'pedido': serializar_pedido(linha.pedido), 'marcada': linha.check.isChecked()}
+    d = {'pedido': serializar_pedido(linha.pedido), 'marcada': linha.check.isChecked(),
+         'identificacao_pendente': bool(getattr(linha, 'identificacao_pendente', False))}
     prep = linha.preparacao
     if prep:
         capa = asdict(prep['capa'])
@@ -62,6 +63,9 @@ def serializar_selecao(linha) -> dict:
                             'ident': asdict(prep['ident']) if prep.get('ident') else None,
                             'apagar_tags': list(prep.get('apagar_tags') or []),
                             'revisao_pendente': bool(prep.get('revisao_pendente')),
+                            'capa_pendente': bool(prep.get('capa_pendente')),
+                            'identificacao_aviso': str(prep.get('identificacao_aviso') or ''),
+                            'creditos_catalogo': list(prep.get('creditos_catalogo') or []),
                             'consulta_capa': dict(prep.get('consulta_capa') or {})}
     return d
 
@@ -87,6 +91,9 @@ def desserializar_selecao(d: dict) -> tuple[dict, bool, dict | None]:
                           'ident': _construir(Identificacao, p['ident']) if p.get('ident') else None,
                           'apagar_tags': apagar,
                           'revisao_pendente': p.get('revisao_pendente') is True,
+                          'capa_pendente': p.get('capa_pendente') is True,
+                          'identificacao_aviso': str(p.get('identificacao_aviso') or ''),
+                          'creditos_catalogo': [str(x) for x in p.get('creditos_catalogo', []) if isinstance(x, str)][:2],
                           'consulta_capa': {k: str(v) for k, v in consulta.items()
                                             if k in ('titulo', 'artista', 'origem', 'aviso')}}
     return pedido, bool(d.get('marcada', True)), preparacao

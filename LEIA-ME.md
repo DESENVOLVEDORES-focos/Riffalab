@@ -1,3 +1,5 @@
+> **Versão 0.11.5:** identificação automática em duas etapas antes da música aparecer em Downloads; Editar dados fica para correções. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
+
 > **Versão 0.11.4:** revisão de metadados mais completa, créditos identificados por origem e proteção do arquivo de cookies durante o uso. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
 
 > **Versão 0.11.3:** a capa escolhida é mantida ao editar os dados; se a identidade mudar, você pode revisar e confirmar a mesma imagem. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).

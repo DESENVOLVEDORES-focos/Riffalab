@@ -453,6 +453,13 @@ class DialogoEditarDados(QDialog):
             aplicados = []
             for chave, valor in sugestoes.items():
                 if valor and atuais[chave] == anteriores[chave]:
+                    # Um ano ou faixa parcial não deve apagar data/total mais
+                    # completos da mesma edição durante uma sugestão da IA.
+                    mesma_edicao = not album_mudou
+                    separador = '-' if chave == 'ano' else '/' if chave == 'faixa' else ''
+                    if (mesma_edicao and separador and
+                            anteriores[chave].startswith(str(valor) + separador)):
+                        continue
                     self.campos[chave].setText(str(valor))
                     self._campos_sugeridos.add(chave)
                     aplicados.append(chave)

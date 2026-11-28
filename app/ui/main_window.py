@@ -257,6 +257,10 @@ class MainWindow(QMainWindow):
             self.toast._posicionar()
 
     def closeEvent(self, evento) -> None:             # noqa: N802
+        if self.pagina_visualizar._salvando:
+            self.toast.mostrar('Aguarde a edição do MP3 terminar antes de fechar.')
+            evento.ignore()
+            return
         if self.fila.pendentes or self.pagina_downloads._preparando or self.pagina_downloads._identificacoes_ativas or self.pagina_downloads._formatos_ativos:
             resposta = QMessageBox.warning(
                 self, 'Processamento em andamento',

@@ -379,6 +379,17 @@ class Interface(unittest.TestCase):
         finally:
             liberar.set()
 
+    def test_nao_fecha_enquanto_mp3_esta_sendo_salvo(self):
+        evento = Mock()
+        self.janela.pagina_visualizar._salvando = True
+        try:
+            with patch.object(self.janela.toast, 'mostrar') as mensagem:
+                self.janela.closeEvent(evento)
+            evento.ignore.assert_called_once()
+            self.assertIn('Aguarde', mensagem.call_args.args[0])
+        finally:
+            self.janela.pagina_visualizar._salvando = False
+
     def test_visualizador_mp3_mostra_capa_embutida_e_nao_altera_arquivos(self):
         import hashlib, time
         from PySide6.QtGui import QImage, QColor

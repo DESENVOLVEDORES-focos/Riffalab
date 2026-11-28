@@ -1,4 +1,4 @@
-"""Visualizador das tags e capas já embutidas em arquivos MP3; somente leitura."""
+"""Visualizador e edição explícita de tags e capas em MP3s locais."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,13 +7,14 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QDialog, QMessageBox)
 
-from ... import visualizador_mp3
+from ... import visualizador_mp3, editar_mp3
 from ...config import Config
 from ...models import hhmmss
 from ...workers import EXECUTOR_GLOBAL
 from ..theme import PALETA
+from .editar_mp3_dialog import DialogoEditarMP3
 
 
 class MP3ViewerPage(QWidget):
@@ -26,9 +27,13 @@ class MP3ViewerPage(QWidget):
         self._geracao_detalhe = 0
         self._encerrando = False
         self._iniciado = False
+        self._abrindo_editor = False
+        self._salvando = False
+        self._selecionar_apos_atualizar = ''
         self._itens = []
         self._imagens = []
         self._caminho_atual = ''
+        self._detalhe_valido = False
         self._modo = 'pasta'
         self._local = str(config.pasta_saida)
 
@@ -38,7 +43,7 @@ class MP3ViewerPage(QWidget):
         titulo = QLabel('Visualizar MP3 e capas')
         titulo.setObjectName('titulo')
         raiz.addWidget(titulo)
-        desc = QLabel('Veja as imagens ID3 gravadas nos arquivos. Apenas leitura: nada é alterado ou baixado.')
+        desc = QLabel('Veja e, quando quiser, corrija dados e capa dos seus MP3s sem baixar novamente.')
         desc.setObjectName('subtitulo')
         desc.setWordWrap(True)
         raiz.addWidget(desc)
@@ -114,6 +119,11 @@ class MP3ViewerPage(QWidget):
         self.lbl_caminho.setTextFormat(Qt.PlainText)
         self.lbl_caminho.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.lbl_caminho)
+        self.btn_editar = QPushButton('Editar dados e capa')
+        self.btn_editar.setObjectName('primario')
+        self.btn_editar.setEnabled(False)
+        self.btn_editar.clicked.connect(self._editar_mp3)
+        layout.addWidget(self.btn_editar)
         layout.addStretch(1)
         corpo.addWidget(painel, 1)
         raiz.addLayout(corpo, 1)
@@ -171,7 +181,8 @@ class MP3ViewerPage(QWidget):
         if dados.get('truncado'):
             resumo += f" · limite de {visualizador_mp3.MAX_ARQUIVOS}; escolha uma subpasta para ver os demais"
         self.resumo.setText(resumo)
-        self._preencher_tabela()
+        preferido, self._selecionar_apos_atualizar = self._selecionar_apos_atualizar, ''
+        self._preencher_tabela(preferido)
 
     def _lista_falhou(self, geracao: int, erro: str) -> None:
         if not self._encerrando and geracao == self._geracao:
@@ -180,7 +191,8 @@ class MP3ViewerPage(QWidget):
     def _filtrar(self, *_args) -> None:
         self._preencher_tabela()
 
-    def _preencher_tabela(self) -> None:
+    def _preencher_tabela(self, preferido: str = '') -> None:
+        preferido = preferido or self._caminho_atual
         texto = self.filtro.text().casefold().strip()
         visiveis = [i for i in self._itens if not texto or texto in ' '.join(
             str(i.get(k) or '') for k in ('titulo', 'artista', 'album', 'caminho')).casefold()]
@@ -198,13 +210,16 @@ class MP3ViewerPage(QWidget):
         self.tabela.blockSignals(False)
         self._limpar_detalhe()
         if visiveis:
-            self.tabela.selectRow(0)
+            indice = next((n for n, x in enumerate(visiveis) if x['caminho'] == preferido), 0)
+            self.tabela.selectRow(indice)
             self._selecionou()
 
     def _limpar_detalhe(self) -> None:
         self._geracao_detalhe += 1
         self._caminho_atual = ''
+        self._detalhe_valido = False
         self._imagens = []
+        self.btn_editar.setEnabled(False)
         self.seletor.hide()
         self.lbl_titulo.setText('Selecione um MP3 na lista')
         self.lbl_album.clear()
@@ -224,6 +239,8 @@ class MP3ViewerPage(QWidget):
         self._geracao_detalhe += 1
         geracao = self._geracao_detalhe
         self._caminho_atual = caminho
+        self._detalhe_valido = False
+        self.btn_editar.setEnabled(False)
         self._imagens = []
         self.lbl_titulo.setText('Lendo tags…')
         self.lbl_album.clear()
@@ -239,6 +256,8 @@ class MP3ViewerPage(QWidget):
     def _detalhe_pronto(self, geracao: int, dados: dict) -> None:
         if self._encerrando or geracao != self._geracao_detalhe:
             return
+        self._detalhe_valido = not bool(dados.get('erro'))
+        self.btn_editar.setEnabled(self._detalhe_valido and not self._salvando and not self._abrindo_editor)
         self.lbl_titulo.setText(' — '.join(filter(None, [dados['artista'], dados['titulo']])))
         self.lbl_album.setText('\n'.join([
             'Álbum: ' + (dados['album'] or 'não informado'),
@@ -268,6 +287,82 @@ class MP3ViewerPage(QWidget):
         if not self._encerrando and geracao == self._geracao_detalhe:
             self.lbl_capa.setText('Não foi possível ler')
             self.lbl_estado.setText(erro[:250])
+
+    def _editar_mp3(self) -> None:
+        if not self._caminho_atual or self._abrindo_editor or self._salvando:
+            return
+        caminho = self._caminho_atual
+        self._abrindo_editor = True
+        self.btn_editar.setEnabled(False)
+        self.resumo.setText('Preparando edição segura do MP3…')
+
+        def pronto(snapshot):
+            self._abrindo_editor = False
+            if self._encerrando:
+                return
+            if caminho != self._caminho_atual:
+                self.btn_editar.setEnabled(self._detalhe_valido and not self._salvando)
+                return
+            self.btn_editar.setEnabled(self._detalhe_valido)
+            self.resumo.setText('Revise os dados e a capa; nada será alterado até salvar.')
+            dialogo = DialogoEditarMP3(snapshot, self)
+            if dialogo.exec() != QDialog.Accepted or self._encerrando:
+                return
+            alteracoes = dialogo.alteracoes()
+            if not alteracoes and dialogo.capa_acao == 'manter':
+                self.resumo.setText('Nenhuma alteração foi solicitada.')
+                return
+            resposta = QMessageBox.question(self, 'Confirmar edição do MP3',
+                'Salvar as alterações neste arquivo?\n\n' + caminho +
+                '\n\nUma cópia de segurança será criada na mesma pasta. O áudio não será recodificado.',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if resposta != QMessageBox.Yes:
+                return
+            self._salvar_edicao(snapshot, alteracoes, dialogo.capa_acao, dialogo.capa_dados)
+
+        def falhou(erro):
+            self._abrindo_editor = False
+            if not self._encerrando:
+                self.btn_editar.setEnabled(self._detalhe_valido and not self._salvando)
+                self.resumo.setText('Não foi possível abrir o editor.')
+                QMessageBox.warning(self, 'Não foi possível editar', erro[:500])
+        try:
+            EXECUTOR_GLOBAL.rodar(editar_mp3.abrir, caminho, ao_resultado=pronto, ao_erro=falhou)
+        except Exception as exc:
+            falhou(str(exc))
+
+    def _salvar_edicao(self, snapshot, alteracoes, capa_acao, capa_dados):
+        self._salvando = True
+        for widget in (self.btn_editar, self.btn_pasta, self.btn_arquivo, self.btn_atualizar, self.tabela, self.filtro):
+            widget.setEnabled(False)
+        self.resumo.setText('Salvando tags e criando backup… Aguarde antes de fechar o aplicativo.')
+
+        def terminar():
+            self._salvando = False
+            for widget in (self.btn_pasta, self.btn_arquivo, self.btn_atualizar, self.tabela, self.filtro):
+                widget.setEnabled(True)
+            self.btn_editar.setEnabled(self._detalhe_valido)
+
+        def pronto(resultado):
+            terminar()
+            if self._encerrando:
+                return
+            self._selecionar_apos_atualizar = snapshot['caminho']
+            self.atualizar()
+            self.mensagem.emit('MP3 atualizado. Backup: ' + resultado['backup'])
+            QMessageBox.information(self, 'MP3 atualizado',
+                'Dados e capa salvos sem recodificar o áudio.\n\nBackup do original:\n' + resultado['backup'])
+
+        def falhou(erro):
+            terminar()
+            if not self._encerrando:
+                self.resumo.setText('Não foi possível salvar. O arquivo original não foi substituído.')
+                QMessageBox.warning(self, 'Não foi possível salvar o MP3', erro[:700])
+        try:
+            EXECUTOR_GLOBAL.rodar(editar_mp3.salvar, snapshot, alteracoes, capa_acao, capa_dados,
+                                  ao_resultado=pronto, ao_erro=falhou)
+        except Exception as exc:
+            falhou(str(exc))
 
     def _mostrar_imagem(self, indice: int) -> None:
         if indice < 0 or indice >= len(self._imagens):

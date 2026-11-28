@@ -1,3 +1,5 @@
+> **Versão 0.11.7:** corrija dados e capa de um MP3 existente em **Ver MP3 e capas**, com backup e sugestão opcional da IA. Veja [VISUALIZAR-MP3.md](VISUALIZAR-MP3.md).
+
 > **Versão 0.11.6:** a pesquisa não consulta mais os formatos dos vídeos; use **Verificar formatos** em Downloads somente quando desejar. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
 
 > **Versão 0.11.5:** identificação automática em duas etapas antes da música aparecer em Downloads; Editar dados fica para correções. Veja [CAPAS-MANUAIS.md](CAPAS-MANUAIS.md).
